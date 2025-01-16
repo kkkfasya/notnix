@@ -1,0 +1,272 @@
+#!/usr/bin/lua
+-- notnix
+-- Copyright (c) 2025 Kamal Fasya
+-- This is free a software licensed under the terms of the MIT license. See LICENSE for details.
+
+-- fuck libdnf5, wym "attributeerror: 'RepoSackWeakPtr' object has no attribute 'load_repos'"???? I follow the docs correctly motherfucker
+
+-- TODO: make a pkgs_git, it will clone git repo and do installation on command provided by user
+local color = {}
+color.info = "\27[32m"
+color.warn = "\27[33m"
+color.error = "\27[31m"
+
+local function strim(str)
+	if str == nil then
+		return ""
+	end
+	return str:gsub("%s+", "")
+end
+
+local function load_pkgs(pkgs_table)
+	local s = ""
+
+	if not #pkgs_table then
+		return s
+	end
+
+	for i = 1, #pkgs_table do
+		s = s .. strim(pkgs_table[i]) .. " " -- yes, there will be trailing spaces and you will love it
+	end
+
+	return s
+end
+
+local function snapshot_pkgs(pkgs_table, luafile)
+	local t = "M.pkgs = {\n"
+
+	for i = 1, #pkgs_table do
+		local pkg = '"' .. pkgs_table[i] .. '"' .. ",\n" -- thank God lua allow trailing comma
+		t = t .. pkg
+	end
+
+	t = t .. "}"
+
+	local f = assert(io.open(luafile, "w"), color.error .. "[ERROR]: error opening snapshot file")
+    -- stylua: ignore
+	f:write(
+        "-- WARNING: do not touch this file\n"
+        .. "local M = {}\n"
+        .. t
+        .. "\nreturn M"
+    )
+	f:close()
+end
+
+-- return table of found dups
+local function detect_dups(pkgs)
+	local t_dups = {}
+	table.sort(pkgs)
+
+	for i = 1, #pkgs do
+		if pkgs[i] == pkgs[i + 1] then
+			table.insert(t_dups, pkgs[i])
+		end
+	end
+
+	return t_dups
+end
+
+local function detect_change_pkgs(current_pkgs, snapshot_pkgs)
+	local changes = {
+		install = {},
+		remove = {},
+	}
+
+	-- you will be lined up and you will be happy
+	table.sort(current_pkgs)
+	table.sort(snapshot_pkgs)
+
+	if strim(table.concat(current_pkgs)) == strim(table.concat(snapshot_pkgs)) then
+		return nil
+	end
+
+	-- NUMERIC LOOP IS FASTER RAHHHHHH
+	for i = 1, #current_pkgs do
+		if strim(snapshot_pkgs[i]) == "" then -- empty string isnt considered falsy LMFAOOOO (too much toy language hurts my brain (python, js, etc))
+			table.insert(changes.install, current_pkgs[i])
+		end
+	end
+
+	for i = 1, #snapshot_pkgs do
+		if strim(current_pkgs[i]) == "" then
+			table.insert(changes.remove, snapshot_pkgs[i])
+		end
+	end
+
+	return changes
+end
+
+local function is_file_exist(file)
+	local _, err = os.rename(file, file)
+	if err then
+		return false
+	end
+	return true
+end
+
+-- return path of config folder
+local function make_config()
+	local home = os.getenv("HOME")
+	local xdg_config_home = os.getenv("XDG_CONFIG_HOME")
+
+	local path = xdg_config_home and xdg_config_home .. "notnix/" or home .. "/.config/notnix/"
+
+	if not is_file_exist(path) then
+		print(color.warn .. "[WARNING]: notnix config folder not found")
+		print(color.info .. "[INFO]: creating folder " .. path)
+		os.execute("mkdir " .. path)
+	end
+
+	if not is_file_exist(path .. ".snapshot.lua") then
+		local f = assert(io.open(path .. ".snapshot.lua", "w"), color.error .. "[ERROR]: cant create snapshot file")
+		f:write([[-- WARNING: do not touch this file
+local M = {}
+M.pkgs = {}
+return M
+        ]])
+		f:close()
+	end
+
+	if not is_file_exist(path .. "config.lua") then
+		print(color.warn .. "[WARNING]: config file doesn't exist")
+		print(color.info .. "[INFO]: creating config file, see " .. path .. " for config options")
+		local f = assert(io.open(path .. "config.lua", "w"), color.error .. "[ERROR]: cant create config file")
+		f:write([[local Config = {}
+
+-- list of all pkgs that want to be installed
+-- to remove package simply remove it from this list.
+-- [field-type]    : string
+Config.pkgs = {
+    "neovim",
+}
+
+-- change according to pkg manager & must include sudo
+-- e.g "sudo apt install" for debian-based distro
+-- [type]    : string
+-- [default] : "sudo dnf <command>"
+Config.install = "sudo dnf install"
+Config.remove = "sudo dnf remove"
+Config.upgrade = "sudo dnf upgrade"
+
+-- no more Y/n confirmation before install/remove
+-- [type]    : boolean
+-- [default] : false
+Config.assume_yes_install = false
+Config.assume_yes_remove = false
+
+return Config]])
+		f:close()
+	end
+
+	return path
+end
+
+local function main()
+	local path = make_config()
+
+	local Config = dofile(path .. "config.lua")
+	local Snapshot = dofile(path .. ".snapshot.lua")
+	local yes_install = Config.assume_yes_install and "yes | " or ""
+	local yes_remove = Config.assume_yes_remove and "yes | " or ""
+
+	local chud = [[
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⠿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣀⣀⡀⠀⢀⠀⠙⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⣠⣴⣶⣶⣶⣶⣿⣿⣿⣿⣿⣿⣿⣷⡌⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⣴⣿⣿⣿⣿⣿⣿⣻⣿⣿⣿⡿⣿⣿⣿⣿⡜⣿
+⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⢀⣿⣿⣿⣿⣿⣿⣿⣷⢿⣿⣿⣇⣿⣿⣿⣿⣧⣿
+⣿⣿⣿⣿⣿⣿⣿⡇⡆⠀⠀⣸⣿⣯⡉⠙⠛⠿⣿⣿⢺⣿⣿⡇⢿⡿⠿⠛⠉⣿
+⣿⣿⣿⣿⣿⣿⣿⢁⡟⣀⣘⣛⣛⡛⢩⣤⣤⣤⣤⣀⠻⠿⠿⡇⢊⣀⣐⣚⡃⢻
+⣿⣿⣿⣿⣿⣿⣿⠸⣧⣽⣿⣿⣿⡇⢼⠰⠀⠈⠙⣻⠆⣾⣷⡆⢘⡋⠉⣽⡇⢸
+⣿⣿⣿⣿⣿⣿⣿⡅⣿⣿⣿⣿⣿⣧⣬⣉⣂⣚⣛⢋⣠⣿⣿⣿⢀⡐⢀⢛⡃⣸
+⣿⣿⣿⣿⣿⣿⣿⣧⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⢸⣿⣿⣿⣿⡘⣿⣿⣿⡇⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⡏⠩⡿⠛⢿⠿⢃⣿⣿⡿⢣⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⢸⣿⣿⡿⣿⣿⣿⣿⣿⡿⣸⡷⠾⠿⣿⢶⡇⣿⡿⣡⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⡿⢸⣿⣿⡇⣿⣿⣿⣿⣿⢣⣁⠬⣽⣿⣒⠓⣁⠿⣡⣿⣿⣿ nothing ever happens
+⣿⣿⣿⣿⣿⣿⣿⠇⣿⣿⣿⣵⣿⣿⣿⣿⣿⣿⣿⣷⢖⣉⢱⣾⡟⣴⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⢏⣾⣿⣿⢟⣻⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⣋⣭⣾⣿⣿⣿⣿⣿
+⣿⣿⡿⢟⣛⣁⣾⣿⣟⣣⣿⣿⣿⣿⣿⣿⣿⣿⣯⣯⣥⣿⣬⣝⣛⣛⣛⣛⡻⠿
+⣶⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣭⣝⠻⠟⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿]]
+
+	local help_msg = [[notnix: nix-like package-manager but not really
+usage: ./notnix [option]
+    options:
+        -h      | --help | help -> show this help message
+        upgrade | update | up   -> upgrading packages found in the list
+]]
+
+	if arg[1] ~= nil and arg[1] == "-h" or arg[1] == "--help" or arg[1] == "help" then
+		print(help_msg)
+		return
+	end
+
+	local t_dups = detect_dups(Config.pkgs)
+	if #t_dups > 0 then
+		print(color.error .. "[ERROR]: found duplicate:")
+		for i = 1, #t_dups do
+			print(color.error .. "\t- " .. t_dups[i])
+		end
+
+		print(color.error .. "[ERROR]: please remove duplicates to continue")
+		return
+	end
+
+	if arg[1] ~= nil and arg[1] == "up" or arg[1] == "update" or arg[1] == "upgrade" then
+		print(color.info .. "[INFO]: Upgrading packages")
+            -- stylua: ignore
+            os.execute(
+                yes_install
+                .. Config.upgrade
+                .. " " -- assuming doesnt't have space hmmm
+                .. load_pkgs(Config.pkgs)
+            )
+		return
+	end
+
+	local pkgs = detect_change_pkgs(Config.pkgs, Snapshot.pkgs)
+	if pkgs == nil then
+		print(chud)
+		print(color.info .. "[INFO]: Nothing to do, no packages added/removed")
+		return
+	end
+
+	if #pkgs.install > 0 then
+		print(color.info .. "[INFO]: Installing new packages:")
+		for i = 1, #pkgs.install do
+			print(color.info .. "\t- " .. pkgs.install[i])
+		end
+
+    -- stylua: ignore
+        local _,_, c = os.execute(
+            yes_install
+            .. Config.install
+            .. " " -- assuming doesnt't have space hmmm
+            .. load_pkgs(pkgs.install)
+        )
+		if c > 0 then
+			return
+		end
+	end
+
+	if #pkgs.remove > 0 then
+		print(color.info .. "[INFO]: Removing packages:")
+		for i = 1, #pkgs.remove do
+			print(color.info .. "\t- " .. pkgs.remove[i])
+		end
+        -- stylua: ignore
+        local _, _, c = os.execute(
+            yes_remove
+            .. Config.remove
+            .. " "
+            .. load_pkgs(pkgs.remove)
+        )
+		if c > 0 then
+			return
+		end
+	end
+
+	snapshot_pkgs(Config.pkgs, path .. ".snapshot.lua")
+end
+main()
