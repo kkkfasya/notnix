@@ -5,6 +5,7 @@
 
 -- fuck libdnf5, wym "attributeerror: 'RepoSackWeakPtr' object has no attribute 'load_repos'"???? I follow the docs correctly motherfucker
 
+-- TODO: make a pkgs_flatpak, it will install flatpak
 -- TODO: make a pkgs_git, it will clone git repo and do installation on command provided by user
 local color = {}
 color.info = "\27[32m"
@@ -65,36 +66,6 @@ local function detect_dups(pkgs)
 	end
 
 	return t_dups
-end
-
-local function detect_change_pkgs(current_pkgs, snapshot_pkgs)
-	local changes = {
-		install = {},
-		remove = {},
-	}
-
-	-- you will be lined up and you will be happy
-	table.sort(current_pkgs)
-	table.sort(snapshot_pkgs)
-
-	if strim(table.concat(current_pkgs)) == strim(table.concat(snapshot_pkgs)) then
-		return nil
-	end
-
-	-- NUMERIC LOOP IS FASTER RAHHHHHH
-	for i = 1, #current_pkgs do
-		if strim(snapshot_pkgs[i]) == "" then -- empty string isnt considered falsy LMFAOOOO (too much toy language hurts my brain (python, js, etc))
-			table.insert(changes.install, current_pkgs[i])
-		end
-	end
-
-	for i = 1, #snapshot_pkgs do
-		if strim(current_pkgs[i]) == "" then
-			table.insert(changes.remove, snapshot_pkgs[i])
-		end
-	end
-
-	return changes
 end
 
 local function is_file_exist(file)
@@ -162,6 +133,35 @@ return Config]])
 	return path
 end
 
+function detect_change_pkgs(pkg, snapshot)
+	local changes = {
+		install = {},
+		remove = {},
+	}
+
+	local hashmap = {}
+
+	-- e.g hashmap["vlc"] = true
+	for _, v in ipairs(snapshot) do
+		hashmap[v] = true
+	end
+
+	-- check new items in pkg and remove found ones from hashmap
+	for _, v in ipairs(pkg) do
+		if not hashmap[v] then
+			table.insert(changes.install, v)
+		end
+		hashmap[v] = nil -- lua actually doesnt iterate over nil-valued key
+	end
+
+	-- remaining keys in hashmap are removed items
+	for k in pairs(hashmap) do
+		table.insert(changes.remove, k)
+	end
+
+	return changes
+end
+
 local function main()
 	local path = make_config()
 
@@ -226,7 +226,7 @@ usage: ./notnix [option]
 	end
 
 	local pkgs = detect_change_pkgs(Config.pkgs, Snapshot.pkgs)
-	if pkgs == nil then
+	if #pkgs.install == 0 and #pkgs.remove == 0 then
 		print(chud)
 		print(color.info .. "[INFO]: Nothing to do, no packages added/removed")
 		return

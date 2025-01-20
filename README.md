@@ -49,7 +49,7 @@ put this in your zshrc or bashrc (sorry non-posix shell, yall suckass)
 alias pkg='nvim $HOME/.config/notnix/config.lua' # i use neovim btw
 #alias pkg='nvim $XDG_CONFIG_HOME/notnix/config.lua' # or this
 ```
-2. you can move notnix to ```$HOME/.local/bin/``` so you (user) can call it from anywhere  
+2. run ```chmod +x ./install.sh && ./install.sh``` to move notnix to ```$HOME/.local/bin/``` so you (user) can call it from anywhere (or run ```./install.sh -m``` instead to move the minified version)
 3. delete this directory, it's now finished, save some space #diskspacematters
 
 ## Downside
