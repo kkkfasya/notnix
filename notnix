@@ -7,33 +7,17 @@
 
 -- TODO: make a pkgs_flatpak, it will install flatpak
 -- TODO: make a pkgs_git, it will clone git repo and do installation on command provided by user
+-- TODO: add stylua.toml
+
 local color = {}
 color.info = "\27[32m"
 color.warn = "\27[33m"
 color.error = "\27[31m"
 
-local function strim(str)
-	if str == nil then
-		return ""
-	end
-	return str:gsub("%s+", "")
-end
+-- general purpose utils for both Gits and Pkgs
+local Utils = {}
 
-local function load_pkgs(pkgs_table)
-	local s = ""
-
-	if not #pkgs_table then
-		return s
-	end
-
-	for i = 1, #pkgs_table do
-		s = s .. strim(pkgs_table[i]) .. " " -- yes, there will be trailing spaces and you will love it
-	end
-
-	return s
-end
-
-local function snapshot_pkgs(pkgs_table, luafile)
+function Utils.snapshot(pkgs_table, luafile)
 	local t = "M.pkgs = {\n"
 
 	for i = 1, #pkgs_table do
@@ -55,7 +39,7 @@ local function snapshot_pkgs(pkgs_table, luafile)
 end
 
 -- return table of found dups
-local function detect_dups(pkgs)
+function Utils.detect_dups(pkgs)
 	local t_dups = {}
 	table.sort(pkgs)
 
@@ -68,6 +52,69 @@ local function detect_dups(pkgs)
 	return t_dups
 end
 
+-- return a nested table of add and remove
+function Utils.detect_changes(pkg, snapshot)
+	local changes = {
+		add = {},
+		remove = {},
+	}
+
+	local hashmap = {}
+
+	-- e.g hashmap["vlc"] = true
+	for _, v in ipairs(snapshot) do
+		hashmap[v] = true
+	end
+
+	-- check new items in pkg and remove found ones from hashmap
+	for _, v in ipairs(pkg) do
+		if not hashmap[v] then
+			table.insert(changes.install, v)
+		end
+		hashmap[v] = nil -- lua actually doesnt iterate over nil-valued key
+	end
+
+	-- remaining keys in hashmap are removed items
+	for k in pairs(hashmap) do
+		table.insert(changes.remove, k)
+	end
+
+	return changes
+end
+
+-- category specific utils
+local Pkgs = {}
+function Pkgs.install(pkgs_table, install_cmd, assume_yes)
+	local yes = assume_yes and "yes | " or ""
+	local _, _, c = os.execute(yes .. install_cmd .. " " .. Pkgs.load(pkgs_table))
+	return c
+end
+
+function Pkgs.remove(pkgs_table, remove_cmd, assume_yes)
+	local yes = assume_yes and "yes | " or ""
+	local _, _, c = os.execute(yes .. remove_cmd .. " " .. Pkgs.load(pkgs_table))
+	return c
+end
+
+-- load table of pkgsb and turn them into string delimited by spaces
+function Pkgs.load(pkgs_table)
+	local s = ""
+
+	if not #pkgs_table then
+		return s
+	end
+
+	for i = 1, #pkgs_table do
+		-- :gsub() here means remove any whitespace
+		s = s .. pkgs_table[i]:gsub("%s+", "") .. " " -- yes, there will be trailing spaces and you will love it
+	end
+
+	return s
+end
+
+local Gits = {}
+
+-- NOTE: should i make a wrapper around common file operation?
 local function is_file_exist(file)
 	local _, err = os.rename(file, file)
 	if err then
@@ -77,7 +124,7 @@ local function is_file_exist(file)
 end
 
 -- return path of config folder
-local function make_config()
+local function _make_config()
 	local home = os.getenv("HOME")
 	local xdg_config_home = os.getenv("XDG_CONFIG_HOME")
 
@@ -133,37 +180,8 @@ return Config]])
 	return path
 end
 
-function detect_change_pkgs(pkg, snapshot)
-	local changes = {
-		install = {},
-		remove = {},
-	}
-
-	local hashmap = {}
-
-	-- e.g hashmap["vlc"] = true
-	for _, v in ipairs(snapshot) do
-		hashmap[v] = true
-	end
-
-	-- check new items in pkg and remove found ones from hashmap
-	for _, v in ipairs(pkg) do
-		if not hashmap[v] then
-			table.insert(changes.install, v)
-		end
-		hashmap[v] = nil -- lua actually doesnt iterate over nil-valued key
-	end
-
-	-- remaining keys in hashmap are removed items
-	for k in pairs(hashmap) do
-		table.insert(changes.remove, k)
-	end
-
-	return changes
-end
-
 local function main()
-	local path = make_config()
+	local path = _make_config()
 
 	local Config = dofile(path .. "config.lua")
 	local Snapshot = dofile(path .. ".snapshot.lua")
@@ -202,7 +220,7 @@ usage: ./notnix [option]
 		return
 	end
 
-	local t_dups = detect_dups(Config.pkgs)
+	local t_dups = Utils.detect_dups(Config.pkgs)
 	if #t_dups > 0 then
 		print(color.error .. "[ERROR]: found duplicate:")
 		for i = 1, #t_dups do
@@ -215,37 +233,24 @@ usage: ./notnix [option]
 
 	if arg[1] ~= nil and arg[1] == "up" or arg[1] == "update" or arg[1] == "upgrade" then
 		print(color.info .. "[INFO]: Upgrading packages")
-            -- stylua: ignore
-            os.execute(
-                yes_install
-                .. Config.upgrade
-                .. " " -- assuming doesnt't have space hmmm
-                .. load_pkgs(Config.pkgs)
-            )
+		Pkgs.install(Config.pkgs, Config.install, Config.assume_yes_install)
 		return
 	end
 
-	local pkgs = detect_change_pkgs(Config.pkgs, Snapshot.pkgs)
-	if #pkgs.install == 0 and #pkgs.remove == 0 then
+	local pkgs = Utils.detect_changes(Config.pkgs, Snapshot.pkgs)
+	if #pkgs.add == 0 and #pkgs.remove == 0 then
 		print(chud)
 		print(color.info .. "[INFO]: Nothing to do, no packages added/removed")
 		return
 	end
 
-	if #pkgs.install > 0 then
+	if #pkgs.add > 0 then
 		print(color.info .. "[INFO]: Installing new packages:")
-		for i = 1, #pkgs.install do
-			print(color.info .. "\t- " .. pkgs.install[i])
+		for i = 1, #pkgs.add do
+			print(color.info .. "\t- " .. pkgs.add[i])
 		end
 
-    -- stylua: ignore
-        local _,_, c = os.execute(
-            yes_install
-            .. Config.install
-            .. " " -- assuming doesnt't have space hmmm
-            .. load_pkgs(pkgs.install)
-        )
-		if c > 0 then
+		if Pkgs.install(pkgs.add, Config.install, Config.assume_yes_install) > 0 then
 			return
 		end
 	end
@@ -255,18 +260,11 @@ usage: ./notnix [option]
 		for i = 1, #pkgs.remove do
 			print(color.info .. "\t- " .. pkgs.remove[i])
 		end
-        -- stylua: ignore
-        local _, _, c = os.execute(
-            yes_remove
-            .. Config.remove
-            .. " "
-            .. load_pkgs(pkgs.remove)
-        )
-		if c > 0 then
+		if Pkgs.remove(pkgs.remove, Config.remove, Config.assume_yes_remove) > 0 then
 			return
 		end
 	end
 
-	snapshot_pkgs(Config.pkgs, path .. ".snapshot.lua")
+	Utils.snapshot(Config.pkgs, path .. ".snapshot.lua")
 end
 main()
