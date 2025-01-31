@@ -17,27 +17,6 @@ color.error = "\27[31m"
 -- general purpose utils for both Gits and Pkgs
 local Utils = {}
 
-function Utils.snapshot(pkgs_table, luafile)
-	local t = "M.pkgs = {\n"
-
-	for i = 1, #pkgs_table do
-		local pkg = '"' .. pkgs_table[i] .. '"' .. ",\n" -- thank God lua allow trailing comma
-		t = t .. pkg
-	end
-
-	t = t .. "}"
-
-	local f = assert(io.open(luafile, "w"), color.error .. "[ERROR]: error opening snapshot file")
-    -- stylua: ignore
-	f:write(
-        "-- WARNING: do not touch this file\n"
-        .. "local M = {}\n"
-        .. t
-        .. "\nreturn M"
-    )
-	f:close()
-end
-
 -- return table of found dups
 function Utils.detect_dups(pkgs)
 	local t_dups = {}
@@ -54,6 +33,10 @@ end
 
 -- return a nested table of add and remove
 function Utils.detect_changes(pkg, snapshot)
+	if snapshot == nil then
+		snapshot = {}
+	end
+
 	local changes = {
 		add = {},
 		remove = {},
@@ -69,7 +52,7 @@ function Utils.detect_changes(pkg, snapshot)
 	-- check new items in pkg and remove found ones from hashmap
 	for _, v in ipairs(pkg) do
 		if not hashmap[v] then
-			table.insert(changes.install, v)
+			table.insert(changes.add, v)
 		end
 		hashmap[v] = nil -- lua actually doesnt iterate over nil-valued key
 	end
@@ -84,6 +67,25 @@ end
 
 -- category specific utils
 local Pkgs = {}
+function Pkgs.snapshot(pkgs_table, luafile)
+	local t = "return {\n"
+
+	for i = 1, #pkgs_table do
+		local pkg = '"' .. pkgs_table[i] .. '"' .. ",\n" -- thank God lua allow trailing comma
+		t = t .. pkg
+	end
+
+	t = t .. "}"
+
+	local f = assert(io.open(luafile, "w"), color.error .. "[ERROR]: error opening snapshot file")
+    -- stylua: ignore
+	f:write(
+        "-- WARNING: do not modify this file\n"
+        .. t
+    )
+	f:close()
+end
+
 function Pkgs.install(pkgs_table, install_cmd, assume_yes)
 	local yes = assume_yes and "yes | " or ""
 	local _, _, c = os.execute(yes .. install_cmd .. " " .. Pkgs.load(pkgs_table))
@@ -114,6 +116,68 @@ end
 
 local Gits = {}
 
+function Gits.snapshot(git_pkgs, luafile)
+	-- WARN: different snapshot file for git tracking
+	local t = "return {\n"
+
+	for k, v in pairs(git_pkgs) do
+		local repo = v["repo"]
+		-- empty string for value of repo if run doesn't exist
+		-- so we can differentiate between none-existent repo and none-existent run command
+		local run = (not v["run"] or v["run"] ~= "") and v["run"] or "" -- (!v or v != "") ? if true : if false.. this is just ternary operator
+		local pkg = ('["%s"] = [[%s]]'):format(repo, run) .. ",\n"
+		t = t .. pkg
+	end
+	t = t .. "}"
+
+	local f = assert(io.open(luafile, "w"), color.error .. "[ERROR]: error opening snapshot file")
+    -- stylua: ignore
+	f:write(
+        "-- WARNING: do not modify this file\n"
+        .. t
+    )
+	f:close()
+end
+
+--[[
+1. get repo from table
+2. check if repo already installed, if not then add to snapshot then install it
+3. check if said repo have a run command defined
+
+
+--]]
+
+function Gits.check_remote(remote_repo)
+	local _, _, c = os.execute("git ls-remote " .. remote_repo)
+	return c
+end
+
+function Gits.get_repo_from_table(git_pkgs)
+	local t = {}
+	for k, v in pairs(git_pkgs) do
+		local repo = v["repo"]
+		if not repo or repo == "" then
+			print(color.error .. ('[ERROR]: repo "%s" dont exist dumbass'):format(repo))
+			return {}
+		end
+		t[repo] = v["run"]
+	end
+	return t
+end
+
+function Gits.install(repo, git_pkgs)
+	if Gits.check_remote(v["repo"]) > 0 then
+		for k, v in pairs(git_pkgs) do
+			print("ERR")
+			return
+		end -- TODO: handle this
+
+		if v["run"] then
+			os.execute(("cd %s && %s"):format(gitclone_path, v["run"]))
+		end
+	end
+end
+
 -- NOTE: should i make a wrapper around common file operation?
 local function is_file_exist(file)
 	local _, err = os.rename(file, file)
@@ -136,12 +200,13 @@ local function _make_config()
 		os.execute("mkdir " .. path)
 	end
 
+	-- TODO: make one for git snapshot
 	if not is_file_exist(path .. ".snapshot.lua") then
 		local f = assert(io.open(path .. ".snapshot.lua", "w"), color.error .. "[ERROR]: cant create snapshot file")
-		f:write([[-- WARNING: do not touch this file
-local M = {}
-M.pkgs = {}
-return M
+		f:write([[-- WARNING: do not modify this file
+return {
+
+}
         ]])
 		f:close()
 	end
@@ -184,7 +249,7 @@ local function main()
 	local path = _make_config()
 
 	local Config = dofile(path .. "config.lua")
-	local Snapshot = dofile(path .. ".snapshot.lua")
+	local snapshot_pkg = dofile(path .. ".snapshot.lua")
 	local yes_install = Config.assume_yes_install and "yes | " or ""
 	local yes_remove = Config.assume_yes_remove and "yes | " or ""
 
@@ -234,10 +299,11 @@ usage: ./notnix [option]
 	if arg[1] ~= nil and arg[1] == "up" or arg[1] == "update" or arg[1] == "upgrade" then
 		print(color.info .. "[INFO]: Upgrading packages")
 		Pkgs.install(Config.pkgs, Config.install, Config.assume_yes_install)
+		Pkgs.snapshot(Config.pkgs, path .. ".snapshot.lua")
 		return
 	end
 
-	local pkgs = Utils.detect_changes(Config.pkgs, Snapshot.pkgs)
+	local pkgs = Utils.detect_changes(Config.pkgs, snapshot_pkg)
 	if #pkgs.add == 0 and #pkgs.remove == 0 then
 		print(chud)
 		print(color.info .. "[INFO]: Nothing to do, no packages added/removed")
@@ -265,6 +331,6 @@ usage: ./notnix [option]
 		end
 	end
 
-	Utils.snapshot(Config.pkgs, path .. ".snapshot.lua")
+	Pkgs.snapshot(Config.pkgs, path .. ".snapshot.lua")
 end
 main()
