@@ -7,12 +7,80 @@
 
 -- TODO: make a pkgs_flatpak, it will install flatpak
 -- TODO: make a pkgs_git, it will clone git repo and do installation on command provided by user
--- TODO: add stylua.toml
+-- TODO: should i seperate Pkgs, Gits, and Utils and then bundle them into a single file with luabunlder hmmm..???
+
 
 local color = {}
 color.info = "\27[32m"
 color.warn = "\27[33m"
 color.error = "\27[31m"
+
+-- NOTE: should i make a wrapper around common file operation?
+local function is_file_exist(file)
+	local _, err = os.rename(file, file)
+	if err then
+		return false
+	end
+	return true
+end
+
+-- make config file if not available, return value is path to config folder
+local function _make_config()
+	local home = os.getenv("HOME")
+	local xdg_config_home = os.getenv("XDG_CONFIG_HOME")
+
+	local path = xdg_config_home and xdg_config_home .. "notnix/" or home .. "/.config/notnix/"
+
+	if not is_file_exist(path) then
+		print(color.warn .. "[WARNING]: notnix config folder not found")
+		print(color.info .. "[INFO]: creating folder " .. path)
+		os.execute("mkdir " .. path)
+	end
+
+	-- TODO: make one for git snapshot
+	if not is_file_exist(path .. ".snapshot.lua") then
+		local f = assert(io.open(path .. ".snapshot.lua", "w"), color.error .. "[ERROR]: cant create snapshot file")
+		f:write([[-- WARNING: do not modify this file
+return {
+
+}
+        ]])
+		f:close()
+	end
+
+	if not is_file_exist(path .. "config.lua") then
+		print(color.warn .. "[WARNING]: config file doesn't exist")
+		print(color.info .. "[INFO]: creating config file, see " .. path .. " for config options")
+		local f = assert(io.open(path .. "config.lua", "w"), color.error .. "[ERROR]: cant create config file")
+		f:write([[local Config = {}
+
+-- list of all pkgs that want to be installed
+-- to remove package simply remove it from this list.
+-- [field-type]    : string
+Config.pkgs = {
+    "neovim",
+}
+
+-- change according to pkg manager & must include sudo
+-- e.g "sudo apt install" for debian-based distro
+-- [type]    : string
+-- [default] : "sudo dnf <command>"
+Config.install = "sudo dnf install"
+Config.remove = "sudo dnf remove"
+Config.upgrade = "sudo dnf upgrade"
+
+-- no more Y/n confirmation before install/remove
+-- [type]    : boolean
+-- [default] : false
+Config.assume_yes_install = false
+Config.assume_yes_remove = false
+
+return Config]])
+		f:close()
+	end
+
+	return path
+end
 
 -- general purpose utils for both Gits and Pkgs
 local Utils = {}
@@ -178,73 +246,46 @@ function Gits.install(repo, git_pkgs)
 	end
 end
 
--- NOTE: should i make a wrapper around common file operation?
-local function is_file_exist(file)
-	local _, err = os.rename(file, file)
-	if err then
-		return false
+-- TODO: snapshot.lua rename to snapshot_pkg.lua
+local function _CLI()
+	local path = _make_config()
+	local Config = dofile(path .. "config.lua")
+	local s_pkgs = dofile(path .. ".snapshot.lua")
+	-- local s_gits = dofile(path .. ".snapshot.lua")
+
+	local help_msg = [[notnix: nix-like package-manager but not really
+usage: ./notnix [option]
+    options:
+        -h      | --help | help -> show this help message
+        upgrade | update | up   -> upgrading packages found in the list
+]]
+
+	if arg[1] ~= nil then
+		if arg[1] == "-h" or arg[1] == "--help" or arg[1] == "help" then
+			print(help_msg)
+			return
+		elseif arg[1] == "up" or arg[1] == "update" or arg[1] == "upgrade" then
+			print("[INFO]: Upgrading packages")
+			for i = 1, #s_pkgs do
+				print("\t- " .. s_pkgs[i])
+			end
+			Pkgs.install(Config.pkgs, Config.install, Config.assume_yes_install)
+			Pkgs.snapshot(Config.pkgs, path .. ".snapshot.lua")
+			return
+		elseif arg[1] == "lp" or arg[1] == "list-pkg" then
+			print("[INFO]: Installed pkgs:")
+			for i = 1, #s_pkgs do
+				print("\t- " .. s_pkgs[i])
+			end
+			return
+		elseif arg[1] == "lg" or arg[1] == "list-git" then
+			print("LIST GIT")
+			return
+		end
 	end
-	return true
 end
 
 -- return path of config folder
-local function _make_config()
-	local home = os.getenv("HOME")
-	local xdg_config_home = os.getenv("XDG_CONFIG_HOME")
-
-	local path = xdg_config_home and xdg_config_home .. "notnix/" or home .. "/.config/notnix/"
-
-	if not is_file_exist(path) then
-		print(color.warn .. "[WARNING]: notnix config folder not found")
-		print(color.info .. "[INFO]: creating folder " .. path)
-		os.execute("mkdir " .. path)
-	end
-
-	-- TODO: make one for git snapshot
-	if not is_file_exist(path .. ".snapshot.lua") then
-		local f = assert(io.open(path .. ".snapshot.lua", "w"), color.error .. "[ERROR]: cant create snapshot file")
-		f:write([[-- WARNING: do not modify this file
-return {
-
-}
-        ]])
-		f:close()
-	end
-
-	if not is_file_exist(path .. "config.lua") then
-		print(color.warn .. "[WARNING]: config file doesn't exist")
-		print(color.info .. "[INFO]: creating config file, see " .. path .. " for config options")
-		local f = assert(io.open(path .. "config.lua", "w"), color.error .. "[ERROR]: cant create config file")
-		f:write([[local Config = {}
-
--- list of all pkgs that want to be installed
--- to remove package simply remove it from this list.
--- [field-type]    : string
-Config.pkgs = {
-    "neovim",
-}
-
--- change according to pkg manager & must include sudo
--- e.g "sudo apt install" for debian-based distro
--- [type]    : string
--- [default] : "sudo dnf <command>"
-Config.install = "sudo dnf install"
-Config.remove = "sudo dnf remove"
-Config.upgrade = "sudo dnf upgrade"
-
--- no more Y/n confirmation before install/remove
--- [type]    : boolean
--- [default] : false
-Config.assume_yes_install = false
-Config.assume_yes_remove = false
-
-return Config]])
-		f:close()
-	end
-
-	return path
-end
-
 local function main()
 	local path = _make_config()
 
@@ -273,18 +314,6 @@ local function main()
 ⣿⣿⡿⢟⣛⣁⣾⣿⣟⣣⣿⣿⣿⣿⣿⣿⣿⣿⣯⣯⣥⣿⣬⣝⣛⣛⣛⣛⡻⠿
 ⣶⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣭⣝⠻⠟⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿]]
 
-	local help_msg = [[notnix: nix-like package-manager but not really
-usage: ./notnix [option]
-    options:
-        -h      | --help | help -> show this help message
-        upgrade | update | up   -> upgrading packages found in the list
-]]
-
-	if arg[1] ~= nil and arg[1] == "-h" or arg[1] == "--help" or arg[1] == "help" then
-		print(help_msg)
-		return
-	end
-
 	local t_dups = Utils.detect_dups(Config.pkgs)
 	if #t_dups > 0 then
 		print(color.error .. "[ERROR]: found duplicate:")
@@ -293,13 +322,6 @@ usage: ./notnix [option]
 		end
 
 		print(color.error .. "[ERROR]: please remove duplicates to continue")
-		return
-	end
-
-	if arg[1] ~= nil and arg[1] == "up" or arg[1] == "update" or arg[1] == "upgrade" then
-		print(color.info .. "[INFO]: Upgrading packages")
-		Pkgs.install(Config.pkgs, Config.install, Config.assume_yes_install)
-		Pkgs.snapshot(Config.pkgs, path .. ".snapshot.lua")
 		return
 	end
 
@@ -333,4 +355,4 @@ usage: ./notnix [option]
 
 	Pkgs.snapshot(Config.pkgs, path .. ".snapshot.lua")
 end
-main()
+_CLI()
