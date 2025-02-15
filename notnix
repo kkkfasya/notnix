@@ -5,17 +5,41 @@
 
 -- fuck libdnf5, wym "attributeerror: 'RepoSackWeakPtr' object has no attribute 'load_repos'"???? I follow the docs correctly motherfucker
 
--- TODO: make a pkgs_flatpak, it will install flatpak
 -- TODO: make a pkgs_git, it will clone git repo and do installation on command provided by user
--- TODO: should i seperate Pkgs, Gits, and Utils and then bundle them into a single file with luabunlder hmmm..???
-
+local chud = [[
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⠿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣀⣀⡀⠀⢀⠀⠙⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⣠⣴⣶⣶⣶⣶⣿⣿⣿⣿⣿⣿⣿⣷⡌⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⣴⣿⣿⣿⣿⣿⣿⣻⣿⣿⣿⡿⣿⣿⣿⣿⡜⣿
+⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⢀⣿⣿⣿⣿⣿⣿⣿⣷⢿⣿⣿⣇⣿⣿⣿⣿⣧⣿
+⣿⣿⣿⣿⣿⣿⣿⡇⡆⠀⠀⣸⣿⣯⡉⠙⠛⠿⣿⣿⢺⣿⣿⡇⢿⡿⠿⠛⠉⣿
+⣿⣿⣿⣿⣿⣿⣿⢁⡟⣀⣘⣛⣛⡛⢩⣤⣤⣤⣤⣀⠻⠿⠿⡇⢊⣀⣐⣚⡃⢻
+⣿⣿⣿⣿⣿⣿⣿⠸⣧⣽⣿⣿⣿⡇⢼⠰⠀⠈⠙⣻⠆⣾⣷⡆⢘⡋⠉⣽⡇⢸
+⣿⣿⣿⣿⣿⣿⣿⡅⣿⣿⣿⣿⣿⣧⣬⣉⣂⣚⣛⢋⣠⣿⣿⣿⢀⡐⢀⢛⡃⣸
+⣿⣿⣿⣿⣿⣿⣿⣧⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⢸⣿⣿⣿⣿⡘⣿⣿⣿⡇⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⡏⠩⡿⠛⢿⠿⢃⣿⣿⡿⢣⣿
+⣿⣿⣿⣿⣿⣿⣿⣿⢸⣿⣿⡿⣿⣿⣿⣿⣿⡿⣸⡷⠾⠿⣿⢶⡇⣿⡿⣡⣿⣿
+⣿⣿⣿⣿⣿⣿⣿⡿⢸⣿⣿⡇⣿⣿⣿⣿⣿⢣⣁⠬⣽⣿⣒⠓⣁⠿⣡⣿⣿⣿ nothing ever happens
+⣿⣿⣿⣿⣿⣿⣿⠇⣿⣿⣿⣵⣿⣿⣿⣿⣿⣿⣿⣷⢖⣉⢱⣾⡟⣴⣿⣿⣿⣿
+⣿⣿⣿⣿⣿⣿⢏⣾⣿⣿⢟⣻⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⣋⣭⣾⣿⣿⣿⣿⣿
+⣿⣿⡿⢟⣛⣁⣾⣿⣟⣣⣿⣿⣿⣿⣿⣿⣿⣿⣯⣯⣥⣿⣬⣝⣛⣛⣛⣛⡻⠿
+⣶⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣭⣝⠻⠟⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿]]
 
 local color = {}
+
 color.info = "\27[32m"
 color.warn = "\27[33m"
 color.error = "\27[31m"
+color.reset = function()
+	print("\27[0m")
+end
 
--- NOTE: should i make a wrapper around common file operation?
+local SNAPSHOT_PKG = ".snapshot_pkg.lua"
+local SNAPSHOT_REPO = ".snapshot_repo.lua"
+local SNAPSHOT_FLATPAK = ".snapshot_flatpak.lua"
+local SNAPSHOT_GIT = ".snapshot_git.lua"
+
 local function is_file_exist(file)
 	local _, err = os.rename(file, file)
 	if err then
@@ -33,65 +57,99 @@ local function _make_config()
 
 	if not is_file_exist(path) then
 		print(color.warn .. "[WARNING]: notnix config folder not found")
-		print(color.info .. "[INFO]: creating folder " .. path)
+		print("[INFO]: creating folder " .. path)
 		os.execute("mkdir " .. path)
 	end
 
-	-- TODO: make one for git snapshot
-	if not is_file_exist(path .. ".snapshot.lua") then
-		local f = assert(io.open(path .. ".snapshot.lua", "w"), color.error .. "[ERROR]: cant create snapshot file")
-		f:write([[-- WARNING: do not modify this file
-return {
+	if not is_file_exist(path .. SNAPSHOT_PKG) then
+		local f = assert(io.open(path .. SNAPSHOT_PKG, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		print("[INFO]: creating folder " .. path)
+		f:write("-- WARNING: do not modify this file\nreturn {}")
+		f:close()
+	end
 
-}
-        ]])
+	if not is_file_exist(path .. SNAPSHOT_GIT) then
+		local f = assert(io.open(path .. SNAPSHOT_GIT, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		f:write("-- WARNING: do not modify this file\nreturn {}")
+		f:close()
+	end
+
+	if not is_file_exist(path .. SNAPSHOT_REPO) then
+		local f = assert(io.open(path .. SNAPSHOT_REPO, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		f:write("-- WARNING: do not modify this file\nreturn {}")
+		f:close()
+	end
+
+	if not is_file_exist(path .. SNAPSHOT_FLATPAK) then
+		local f = assert(io.open(path .. SNAPSHOT_FLATPAK, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		f:write("-- WARNING: do not modify this file\nreturn {}")
 		f:close()
 	end
 
 	if not is_file_exist(path .. "config.lua") then
 		print(color.warn .. "[WARNING]: config file doesn't exist")
-		print(color.info .. "[INFO]: creating config file, see " .. path .. " for config options")
+		color.reset()
+		print("[INFO]: creating config file, see " .. path .. " for config options")
+		local _ = assert(io.open("./config.lua", "r"), color.error .. "[ERROR]: cant find config file in current dir")
+		local cfg = _:read("*a")
 		local f = assert(io.open(path .. "config.lua", "w"), color.error .. "[ERROR]: cant create config file")
-		f:write([[local Config = {}
 
--- list of all pkgs that want to be installed
--- to remove package simply remove it from this list.
--- [field-type]    : string
-Config.pkgs = {
-    "neovim",
-}
-
--- change according to pkg manager & must include sudo
--- e.g "sudo apt install" for debian-based distro
--- [type]    : string
--- [default] : "sudo dnf <command>"
-Config.install = "sudo dnf install"
-Config.remove = "sudo dnf remove"
-Config.upgrade = "sudo dnf upgrade"
-
--- no more Y/n confirmation before install/remove
--- [type]    : boolean
--- [default] : false
-Config.assume_yes_install = false
-Config.assume_yes_remove = false
-
-return Config]])
+		f:write(cfg)
 		f:close()
+		_:close()
 	end
 
 	return path
 end
 
--- general purpose utils for both Gits and Pkgs
-local Utils = {}
+-- general purpose utils for both Git and Pkg
+local Util = {}
+
+-- TODO: do i really need to use this?
+-- load table of string and turn them into a single string delimited by spaces
+function Util.load(pkgs_table)
+	local s = ""
+
+	if not #pkgs_table then
+		return s
+	end
+
+	for i = 1, #pkgs_table do
+		-- :gsub() here means remove any whitespace
+		s = s .. pkgs_table[i]:gsub("%s+", "") .. " " -- yes, there will be trailing spaces and you will love it
+	end
+
+	return s
+end
+
+function Util.snapshot(pkgs_table, luafile)
+	local t = "return {\n"
+
+	for i = 1, #pkgs_table do
+		local pkg = '"' .. pkgs_table[i] .. '"' .. ",\n" -- thank God lua allow trailing comma
+		t = t .. pkg
+	end
+
+	t = t .. "}"
+	local f = assert(io.open(luafile, "w"))
+    -- stylua: ignore
+	f:write(
+        "-- WARNING: do not modify this file\n"
+        .. t
+    )
+	f:close()
+end
 
 -- return table of found dups
-function Utils.detect_dups(pkgs)
+function Util.detect_dups(pkgs)
 	local t_dups = {}
 	table.sort(pkgs)
 
 	for i = 1, #pkgs do
-		if pkgs[i] == pkgs[i + 1] then
+		local a = pkgs[i]:gsub("%s+", "")
+		local b = pkgs[i + 1] and pkgs[i + 1]:gsub("%s+", "") or nil -- pkgs[i + 1] ? tru : fals ternary operator type shit
+
+		if a == b then
 			table.insert(t_dups, pkgs[i])
 		end
 	end
@@ -100,7 +158,7 @@ function Utils.detect_dups(pkgs)
 end
 
 -- return a nested table of add and remove
-function Utils.detect_changes(pkg, snapshot)
+function Util.detect_changes(pkg, snapshot)
 	if snapshot == nil then
 		snapshot = {}
 	end
@@ -119,6 +177,7 @@ function Utils.detect_changes(pkg, snapshot)
 
 	-- check new items in pkg and remove found ones from hashmap
 	for _, v in ipairs(pkg) do
+		-- v = v:gsub("%s+", "")
 		if not hashmap[v] then
 			table.insert(changes.add, v)
 		end
@@ -134,58 +193,22 @@ function Utils.detect_changes(pkg, snapshot)
 end
 
 -- category specific utils
-local Pkgs = {}
-function Pkgs.snapshot(pkgs_table, luafile)
-	local t = "return {\n"
+local Pkg = {}
 
-	for i = 1, #pkgs_table do
-		local pkg = '"' .. pkgs_table[i] .. '"' .. ",\n" -- thank God lua allow trailing comma
-		t = t .. pkg
-	end
-
-	t = t .. "}"
-
-	local f = assert(io.open(luafile, "w"), color.error .. "[ERROR]: error opening snapshot file")
-    -- stylua: ignore
-	f:write(
-        "-- WARNING: do not modify this file\n"
-        .. t
-    )
-	f:close()
-end
-
-function Pkgs.install(pkgs_table, install_cmd, assume_yes)
+function Pkg.install(pkgs_table, install_cmd, assume_yes)
 	local yes = assume_yes and "yes | " or ""
-	local _, _, c = os.execute(yes .. install_cmd .. " " .. Pkgs.load(pkgs_table))
+	local _, _, c = os.execute(yes .. install_cmd .. " " .. Util.load(pkgs_table))
 	return c
 end
 
-function Pkgs.remove(pkgs_table, remove_cmd, assume_yes)
+function Pkg.remove(pkgs_table, remove_cmd, assume_yes)
 	local yes = assume_yes and "yes | " or ""
-	local _, _, c = os.execute(yes .. remove_cmd .. " " .. Pkgs.load(pkgs_table))
+	local _, _, c = os.execute(yes .. remove_cmd .. " " .. Util.load(pkgs_table))
 	return c
 end
 
--- load table of pkgsb and turn them into string delimited by spaces
-function Pkgs.load(pkgs_table)
-	local s = ""
-
-	if not #pkgs_table then
-		return s
-	end
-
-	for i = 1, #pkgs_table do
-		-- :gsub() here means remove any whitespace
-		s = s .. pkgs_table[i]:gsub("%s+", "") .. " " -- yes, there will be trailing spaces and you will love it
-	end
-
-	return s
-end
-
-local Gits = {}
-
-function Gits.snapshot(git_pkgs, luafile)
-	-- WARN: different snapshot file for git tracking
+local Git = {}
+function Git.snapshot(git_pkgs, luafile)
 	local t = "return {\n"
 
 	for k, v in pairs(git_pkgs) do
@@ -207,20 +230,19 @@ function Gits.snapshot(git_pkgs, luafile)
 	f:close()
 end
 
+-- TODO: this!!!
 --[[
 1. get repo from table
 2. check if repo already installed, if not then add to snapshot then install it
 3. check if said repo have a run command defined
-
-
 --]]
 
-function Gits.check_remote(remote_repo)
+function Git.check_remote(remote_repo)
 	local _, _, c = os.execute("git ls-remote " .. remote_repo)
 	return c
 end
 
-function Gits.get_repo_from_table(git_pkgs)
+function Git.get_repo_from_table(git_pkgs)
 	local t = {}
 	for k, v in pairs(git_pkgs) do
 		local repo = v["repo"]
@@ -233,90 +255,199 @@ function Gits.get_repo_from_table(git_pkgs)
 	return t
 end
 
-function Gits.install(repo, git_pkgs)
-	if Gits.check_remote(v["repo"]) > 0 then
-		for k, v in pairs(git_pkgs) do
-			print("ERR")
-			return
-		end -- TODO: handle this
+-- function Git.install(repo, git_pkgs)
+-- 	if Git.check_remote(["repo"]) > 0 then
+-- 		for k, v in pairs(git_pkgs) do
+-- 			print("ERR")
+-- 			return
+-- 		end -- TODO: handle this
+--
+-- 		if v["run"] then
+-- 			os.execute(("cd %s && %s"):format(gitclone_path, v["run"]))
+-- 		end
+-- 	end
+-- end
 
-		if v["run"] then
-			os.execute(("cd %s && %s"):format(gitclone_path, v["run"]))
-		end
-	end
-end
-
--- TODO: snapshot.lua rename to snapshot_pkg.lua
 local function _CLI()
 	local path = _make_config()
 	local Config = dofile(path .. "config.lua")
-	local s_pkgs = dofile(path .. ".snapshot.lua")
-	-- local s_gits = dofile(path .. ".snapshot.lua")
+	local s_pkgs = dofile(path .. SNAPSHOT_PKG)
+	local s_repos = dofile(path .. SNAPSHOT_REPO)
+	local s_fp = dofile(path .. SNAPSHOT_FLATPAK)
+	-- local s_gits = dofile(path .. SNAPSHOT_PKG)
 
 	local help_msg = [[notnix: nix-like package-manager but not really
 usage: ./notnix [option]
     options:
-        -h      | --help | help -> show this help message
-        upgrade | update | up   -> upgrading packages found in the list
+        -h          | --help | help -> show this help message
+        upgrade     | update | up   -> upgrading packages found in the list
+        list-pkg    | lp            -> list all packages installed
+        list-git    | lg            -> list all git repos installed based on config table
+        list-fp     | lfp           -> list all flatpak app
+        list-repo   | lr            -> list all added repo (e.g copr repo)
 ]]
 
+	-- stylua: ignore start
 	if arg[1] ~= nil then
 		if arg[1] == "-h" or arg[1] == "--help" or arg[1] == "help" then
 			print(help_msg)
-			return
+			os.exit(0)
+
 		elseif arg[1] == "up" or arg[1] == "update" or arg[1] == "upgrade" then
 			print("[INFO]: Upgrading packages")
 			for i = 1, #s_pkgs do
 				print("\t- " .. s_pkgs[i])
 			end
-			Pkgs.install(Config.pkgs, Config.install, Config.assume_yes_install)
-			Pkgs.snapshot(Config.pkgs, path .. ".snapshot.lua")
-			return
+			Pkg.install(Config.pkgs, Config.install, Config.assume_yes_install)
+			Pkg.snapshot(Config.pkgs, path .. SNAPSHOT_PKG)
+			os.exit(0)
+
 		elseif arg[1] == "lp" or arg[1] == "list-pkg" then
-			print("[INFO]: Installed pkgs:")
+			print("[INFO]: List of Installed pkgs:")
 			for i = 1, #s_pkgs do
 				print("\t- " .. s_pkgs[i])
 			end
-			return
+			os.exit(0)
+
+		elseif arg[1] == "lr" or arg[1] == "list-pkg" then
+			print("[INFO]: List of repos:")
+			for i = 1, #s_repos do
+				print("\t- " .. s_repos[i])
+			end
+			os.exit(0)
+
+		elseif arg[1] == "lfp" or arg[1] == "list-lfp" then
+			print("[INFO]: Installed flatpak apps:")
+			for i = 1, #s_fp do
+				print("\t- " .. s_fp[i])
+			end
+			os.exit(0)
+
 		elseif arg[1] == "lg" or arg[1] == "list-git" then
-			print("LIST GIT")
+			-- this somehow doesnt output a determinate list,
+			-- it kinda shuffles, but doesn't matter because it doesnt affect functionality
+			print("[INFO]: List of git repos\n")
+			for k, v in pairs(Config.git_pkgs) do
+				print(k)
+				print("\t- repo : ", v["repo"])
+				print("\t- run  :", v["run"])
+			end
+			os.exit(0)
+
+        else
+            print(color.error .. "[ERROR]: Wrong argument fool, use -h for more info")
+            os.exit(0)
+        end
+    end
+	-- stylua: ignore start
+end
+
+local function main()
+	_CLI()
+	local path = _make_config()
+	local Config = dofile(path .. "config.lua")
+	local s_pkg = dofile(path .. SNAPSHOT_PKG)
+	local s_repo = dofile(path .. SNAPSHOT_REPO)
+	local s_flat = dofile(path .. SNAPSHOT_FLATPAK)
+
+	local flat_dups = Util.detect_dups(Config.flatpaks)
+
+	if #flat_dups > 0 then
+		print(color.error .. "[ERROR]: found duplicates:")
+		for i = 1, #flat_dups do
+			print(color.error .. "\t- " .. flat_dups[i])
+		end
+
+		print(color.error .. "[ERROR]: please remove flatpak duplicates to continue")
+		return
+	end
+
+	local flat = Util.detect_changes(Config.flatpaks, s_flat)
+	if #flat.add > 0 then
+        local y = Config.assume_yes_install and " -y" or ""
+		print("[INFO]: Installing new flatpak:")
+		for i = 1, #flat.add do
+			print("\t- " .. flat.add[i])
+			local _, _, c = os.execute("flatpak install " .. flat.add[i] .. y)
+
+			if c > 0 then
+				print(color.error .. "[ERROR]: Cant install flat: " .. flat.add[i])
+				return
+			end
+
+			Util.snapshot(Config.flatpaks, path .. SNAPSHOT_FLATPAK)
+		end
+	end
+
+	if #flat.remove > 0 then
+        local y = Config.assume_yes_remove and " -y" or ""
+		print("[INFO]: Removing flatpak:")
+		for i = 1, #flat.remove do
+			print("\t- " .. flat.remove[i])
+
+			local _, _, c = os.execute("flatpak uninstall " .. flat.remove[i] .. y)
+			if c > 0 then
+				print(color.error .. "[ERROR]: Cant remove flatpak: " .. flat.remove[i])
+				return
+			end
+		end
+
+		Util.snapshot(Config.flat, path .. SNAPSHOT_REPO)
+	end
+
+	local repo_dups = Util.detect_dups(Config.repos)
+	if #repo_dups > 0 then
+		print(color.error .. "[ERROR]: found duplicates:")
+		for i = 1, #repo_dups do
+			print(color.error .. "\t- " .. repo_dups[i])
+		end
+
+		print(color.error .. "[ERROR]: please remove repo duplicates to continue")
+		return
+	end
+
+	local repos = Util.detect_changes(Config.repos, s_repo)
+	if #repos.add > 0 then
+		print("[INFO]: Adding new repos:")
+		for i = 1, #repos.add do
+			print("\t- " .. repos.add[i])
+			local _, _, c = os.execute(("sudo %s %s -y"):format(Config.add_repo, repos.add[i]))
+
+			if c > 0 then
+				print(color.error .. "[ERROR]: Cant add repo: " .. repos.add[i])
+				return
+			end
+
+			-- i can return the FILE ptr and close it after the loop finishes
+			-- it's faster, but unnecessary as i am not running on apollo 11 computer
+			-- BUT I'M ITCHING TO OPTIMIZE IT OH GOD I LOVE PREMATURE OPTIMIZATION
+			Util.snapshot(Config.repos, path .. SNAPSHOT_REPO)
+		end
+		local _, _, c = os.execute(Config.update_cache)
+		if c > 0 then
+			print(color.error .. "[ERROR]: Cant update repo cache")
 			return
 		end
 	end
-end
 
--- return path of config folder
-local function main()
-	local path = _make_config()
+	if #repos.remove > 0 then
+		print("[INFO]: Removing repos:")
+		for i = 1, #repos.remove do
+			print("\t- " .. repos.remove[i])
+			local _, _, c = os.execute(("sudo %s %s -y"):format(Config.remove_repo, repos.remove[i]))
 
-	local Config = dofile(path .. "config.lua")
-	local snapshot_pkg = dofile(path .. ".snapshot.lua")
-	local yes_install = Config.assume_yes_install and "yes | " or ""
-	local yes_remove = Config.assume_yes_remove and "yes | " or ""
+			if c > 0 then
+				print(color.error .. "[ERROR]: Cant remove repo: " .. repos.remove[i])
+				return
+			end
 
-	local chud = [[
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
-⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⠿⣿⣿⣿
-⣿⣿⣿⣿⣿⣿⣿⣿⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣀⣀⡀⠀⢀⠀⠙⣿⣿
-⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⣠⣴⣶⣶⣶⣶⣿⣿⣿⣿⣿⣿⣿⣷⡌⣿⣿
-⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⣴⣿⣿⣿⣿⣿⣿⣻⣿⣿⣿⡿⣿⣿⣿⣿⡜⣿
-⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⢀⣿⣿⣿⣿⣿⣿⣿⣷⢿⣿⣿⣇⣿⣿⣿⣿⣧⣿
-⣿⣿⣿⣿⣿⣿⣿⡇⡆⠀⠀⣸⣿⣯⡉⠙⠛⠿⣿⣿⢺⣿⣿⡇⢿⡿⠿⠛⠉⣿
-⣿⣿⣿⣿⣿⣿⣿⢁⡟⣀⣘⣛⣛⡛⢩⣤⣤⣤⣤⣀⠻⠿⠿⡇⢊⣀⣐⣚⡃⢻
-⣿⣿⣿⣿⣿⣿⣿⠸⣧⣽⣿⣿⣿⡇⢼⠰⠀⠈⠙⣻⠆⣾⣷⡆⢘⡋⠉⣽⡇⢸
-⣿⣿⣿⣿⣿⣿⣿⡅⣿⣿⣿⣿⣿⣧⣬⣉⣂⣚⣛⢋⣠⣿⣿⣿⢀⡐⢀⢛⡃⣸
-⣿⣿⣿⣿⣿⣿⣿⣧⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⢸⣿⣿⣿⣿⡘⣿⣿⣿⡇⣿
-⣿⣿⣿⣿⣿⣿⣿⣿⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⡏⠩⡿⠛⢿⠿⢃⣿⣿⡿⢣⣿
-⣿⣿⣿⣿⣿⣿⣿⣿⢸⣿⣿⡿⣿⣿⣿⣿⣿⡿⣸⡷⠾⠿⣿⢶⡇⣿⡿⣡⣿⣿
-⣿⣿⣿⣿⣿⣿⣿⡿⢸⣿⣿⡇⣿⣿⣿⣿⣿⢣⣁⠬⣽⣿⣒⠓⣁⠿⣡⣿⣿⣿ nothing ever happens
-⣿⣿⣿⣿⣿⣿⣿⠇⣿⣿⣿⣵⣿⣿⣿⣿⣿⣿⣿⣷⢖⣉⢱⣾⡟⣴⣿⣿⣿⣿
-⣿⣿⣿⣿⣿⣿⢏⣾⣿⣿⢟⣻⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⣋⣭⣾⣿⣿⣿⣿⣿
-⣿⣿⡿⢟⣛⣁⣾⣿⣟⣣⣿⣿⣿⣿⣿⣿⣿⣿⣯⣯⣥⣿⣬⣝⣛⣛⣛⣛⡻⠿
-⣶⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣭⣝⠻⠟⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿]]
+			Util.snapshot(Config.repos, path .. SNAPSHOT_REPO)
+		end
+	end
 
-	local t_dups = Utils.detect_dups(Config.pkgs)
+	local t_dups = Util.detect_dups(Config.pkgs)
 	if #t_dups > 0 then
-		print(color.error .. "[ERROR]: found duplicate:")
+		print(color.error .. "[ERROR]: found duplicates:")
 		for i = 1, #t_dups do
 			print(color.error .. "\t- " .. t_dups[i])
 		end
@@ -325,34 +456,36 @@ local function main()
 		return
 	end
 
-	local pkgs = Utils.detect_changes(Config.pkgs, snapshot_pkg)
-	if #pkgs.add == 0 and #pkgs.remove == 0 then
+	local p = Util.detect_changes(Config.pkgs, s_pkg)
+
+	if #p.add == 0 and #p.remove == 0 then
 		print(chud)
-		print(color.info .. "[INFO]: Nothing to do, no packages added/removed")
+		print("[INFO]: Nothing to do, no packages added/removed")
 		return
 	end
 
-	if #pkgs.add > 0 then
-		print(color.info .. "[INFO]: Installing new packages:")
-		for i = 1, #pkgs.add do
-			print(color.info .. "\t- " .. pkgs.add[i])
+	if #p.add > 0 then
+		print("[INFO]: Installing new packages:")
+		for i = 1, #p.add do
+			print("\t- " .. p.add[i])
 		end
 
-		if Pkgs.install(pkgs.add, Config.install, Config.assume_yes_install) > 0 then
+		if Pkg.install(p.add, Config.install, Config.assume_yes_install) > 0 then
 			return
 		end
 	end
 
-	if #pkgs.remove > 0 then
-		print(color.info .. "[INFO]: Removing packages:")
-		for i = 1, #pkgs.remove do
-			print(color.info .. "\t- " .. pkgs.remove[i])
+	if #p.remove > 0 then
+		print("[INFO]: Removing packages:")
+		for i = 1, #p.remove do
+			print("\t- " .. p.remove[i])
 		end
-		if Pkgs.remove(pkgs.remove, Config.remove, Config.assume_yes_remove) > 0 then
+		if Pkg.remove(p.remove, Config.remove, Config.assume_yes_remove) > 0 then
 			return
 		end
 	end
 
-	Pkgs.snapshot(Config.pkgs, path .. ".snapshot.lua")
+	Util.snapshot(Config.pkgs, path .. SNAPSHOT_PKG)
 end
-_CLI()
+
+main()
