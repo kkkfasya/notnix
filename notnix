@@ -298,8 +298,7 @@ usage: ./notnix [option]
 			for i = 1, #s_pkgs do
 				print("\t- " .. s_pkgs[i])
 			end
-			Pkg.install(Config.pkgs, Config.install, Config.assume_yes_install)
-			Pkg.snapshot(Config.pkgs, path .. SNAPSHOT_PKG)
+			Pkg.install(Config.pkgs, Config.upgrade, Config.assume_yes_install)
 			os.exit(0)
 
 		elseif arg[1] == "lp" or arg[1] == "list-pkg" then
