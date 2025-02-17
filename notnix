@@ -208,6 +208,7 @@ function Pkg.remove(pkgs_table, remove_cmd, assume_yes)
 end
 
 local Git = {}
+Git.regex_url = "https?://[^/]+/[^/]+/([^/]+)"
 function Git.snapshot(git_pkgs, luafile)
 	local t = "return {\n"
 

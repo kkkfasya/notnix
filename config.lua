@@ -7,17 +7,17 @@ Config.pkgs = {
     "neovim",
 }
 
--- for adding extra repo like copr, ppa, and so on
--- [field-type]     : string
-Config.repos = {
-    "bieszczaders/kernel-cachyos" -- try cachyos kernel, it's nice
-}
-
 -- flatpak pkgs
 -- NOTE: i wont add support for flatpak repo, flathub should be enough (im tired boss)
 -- [field-type]     : string
 Config.flatpaks = {
-    "com.rafaelmardojai.Blanket", -- relaxing app, GTK tho
+    -- "com.rafaelmardojai.Blanket", -- relaxing app, GTK tho
+}
+
+-- for adding extra repo like copr, ppa, and so on
+-- [field-type]     : string
+Config.repos = {
+    -- "bieszczaders/kernel-cachyos" -- try cachyos kernel, it's nice
 }
 
 -- change according to pkg manager & must include sudo
