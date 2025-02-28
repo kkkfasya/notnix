@@ -177,7 +177,7 @@ function Util.detect_changes(pkg, snapshot)
 
 	-- check new items in pkg and remove found ones from hashmap
 	for _, v in ipairs(pkg) do
-		-- v = v:gsub("%s+", "")
+		v = v:gsub("%s+", "")
 		if not hashmap[v] then
 			table.insert(changes.add, v)
 		end
@@ -216,7 +216,9 @@ function Git.snapshot(git_pkgs, luafile)
 		local repo = v["repo"]
 		-- empty string for value of repo if run doesn't exist
 		-- so we can differentiate between none-existent repo and none-existent run command
-		local run = (not v["run"] or v["run"] ~= "") and v["run"] or "" -- (!v or v != "") ? if true : if false.. this is just ternary operator
+
+		-- (!v or v != "") ? if true : if false.. this is just ternary operator
+		local run = (not v["run"] or v["run"] ~= "") and v["run"] or ""
 		local pkg = ('["%s"] = [[%s]]'):format(repo, run) .. ",\n"
 		t = t .. pkg
 	end
@@ -283,7 +285,6 @@ usage: ./notnix [option]
         -h          | --help | help -> show this help message
         upgrade     | update | up   -> upgrading packages found in the list
         list-pkg    | lp            -> list all packages installed
-        list-git    | lg            -> list all git repos installed based on config table
         list-fp     | lfp           -> list all flatpak app
         list-repo   | lr            -> list all added repo (e.g copr repo)
 ]]
@@ -364,7 +365,7 @@ local function main()
 
 	local flat = Util.detect_changes(Config.flatpaks, s_flat)
 	if #flat.add > 0 then
-        local y = Config.assume_yes_install and " -y" or ""
+		local y = Config.assume_yes_install and " -y" or ""
 		print("[INFO]: Installing new flatpak:")
 		for i = 1, #flat.add do
 			print("\t- " .. flat.add[i])
@@ -380,7 +381,7 @@ local function main()
 	end
 
 	if #flat.remove > 0 then
-        local y = Config.assume_yes_remove and " -y" or ""
+		local y = Config.assume_yes_remove and " -y" or ""
 		print("[INFO]: Removing flatpak:")
 		for i = 1, #flat.remove do
 			print("\t- " .. flat.remove[i])
