@@ -8,7 +8,7 @@ Config.pkgs = {
 }
 
 -- flatpak pkgs
--- NOTE: i wont add support for flatpak repo, flathub should be enough (im tired boss)
+-- INFO: please configure flathub repo before using this
 -- [field-type]     : string
 Config.flatpaks = {
     -- "com.rafaelmardojai.Blanket", -- relaxing app, GTK tho
