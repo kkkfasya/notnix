@@ -119,6 +119,7 @@ function Util.load(pkgs_table)
 		s = s .. pkgs_table[i]:gsub("%s+", "") .. " " -- yes, there will be trailing spaces and you will love it
 	end
 
+	-- will return something like "fastfetch tmux nvim "
 	return s
 end
 
@@ -209,6 +210,7 @@ end
 
 local Git = {}
 Git.regex_url = "https?://[^/]+/[^/]+/([^/]+)"
+
 function Git.snapshot(git_pkgs, luafile)
 	local t = "return {\n"
 
@@ -340,7 +342,7 @@ usage: ./notnix [option]
             os.exit(0)
         end
     end
-	-- stylua: ignore start
+	-- stylua: ignore end
 end
 
 local function main()
@@ -391,9 +393,8 @@ local function main()
 				print(color.error .. "[ERROR]: Cant remove flatpak: " .. flat.remove[i])
 				return
 			end
+			Util.snapshot(Config.flat, path .. SNAPSHOT_REPO)
 		end
-
-		Util.snapshot(Config.flat, path .. SNAPSHOT_REPO)
 	end
 
 	local repo_dups = Util.detect_dups(Config.repos)
@@ -446,11 +447,11 @@ local function main()
 		end
 	end
 
-	local t_dups = Util.detect_dups(Config.pkgs)
-	if #t_dups > 0 then
+	local p_dups = Util.detect_dups(Config.pkgs)
+	if #p_dups > 0 then
 		print(color.error .. "[ERROR]: found duplicates:")
-		for i = 1, #t_dups do
-			print(color.error .. "\t- " .. t_dups[i])
+		for i = 1, #p_dups do
+			print(color.error .. "\t- " .. p_dups[i])
 		end
 
 		print(color.error .. "[ERROR]: please remove duplicates to continue")
@@ -458,7 +459,6 @@ local function main()
 	end
 
 	local p = Util.detect_changes(Config.pkgs, s_pkg)
-
 	if #p.add == 0 and #p.remove == 0 then
 		print(chud)
 		print("[INFO]: Nothing to do, no packages added/removed")
@@ -474,6 +474,7 @@ local function main()
 		if Pkg.install(p.add, Config.install, Config.assume_yes_install) > 0 then
 			return
 		end
+		Util.snapshot(Config.pkgs, path .. SNAPSHOT_PKG)
 	end
 
 	if #p.remove > 0 then
@@ -484,9 +485,8 @@ local function main()
 		if Pkg.remove(p.remove, Config.remove, Config.assume_yes_remove) > 0 then
 			return
 		end
+		Util.snapshot(Config.pkgs, path .. SNAPSHOT_PKG)
 	end
-
-	Util.snapshot(Config.pkgs, path .. SNAPSHOT_PKG)
 end
 
 main()
