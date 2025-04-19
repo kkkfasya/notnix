@@ -393,7 +393,7 @@ local function main()
 				print(color.error .. "[ERROR]: Cant remove flatpak: " .. flat.remove[i])
 				return
 			end
-			Util.snapshot(Config.flat, path .. SNAPSHOT_REPO)
+			Util.snapshot(Config.flatpaks, path .. SNAPSHOT_REPO)
 		end
 	end
 
@@ -488,5 +488,4 @@ local function main()
 		Util.snapshot(Config.pkgs, path .. SNAPSHOT_PKG)
 	end
 end
-
 main()
