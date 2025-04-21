@@ -371,7 +371,7 @@ local function main()
 		print("[INFO]: Installing new flatpak:")
 		for i = 1, #flat.add do
 			print("\t- " .. flat.add[i])
-			local _, _, c = os.execute("flatpak install flathub" .. flat.add[i] .. y)
+			local _, _, c = os.execute("flatpak install flathub " .. flat.add[i] .. y)
 
 			if c > 0 then
 				print(color.error .. "[ERROR]: Cant install flatpak app: " .. flat.add[i])
