@@ -196,6 +196,7 @@ end
 -- category specific utils
 local Pkg = {}
 
+-- TODO: i believe this can be simplified
 function Pkg.install(pkgs_table, install_cmd, assume_yes)
 	local yes = assume_yes and "yes | " or ""
 	local _, _, c = os.execute(yes .. install_cmd .. " " .. Util.load(pkgs_table))
@@ -207,71 +208,6 @@ function Pkg.remove(pkgs_table, remove_cmd, assume_yes)
 	local _, _, c = os.execute(yes .. remove_cmd .. " " .. Util.load(pkgs_table))
 	return c
 end
-
-local Git = {}
-Git.regex_url = "https?://[^/]+/[^/]+/([^/]+)"
-
-function Git.snapshot(git_pkgs, luafile)
-	local t = "return {\n"
-
-	for k, v in pairs(git_pkgs) do
-		local repo = v["repo"]
-		-- empty string for value of repo if run doesn't exist
-		-- so we can differentiate between none-existent repo and none-existent run command
-
-		-- (!v or v != "") ? if true : if false.. this is just ternary operator
-		local run = (not v["run"] or v["run"] ~= "") and v["run"] or ""
-		local pkg = ('["%s"] = [[%s]]'):format(repo, run) .. ",\n"
-		t = t .. pkg
-	end
-	t = t .. "}"
-
-	local f = assert(io.open(luafile, "w"), color.error .. "[ERROR]: error opening snapshot file")
-    -- stylua: ignore
-	f:write(
-        "-- WARNING: do not modify this file\n"
-        .. t
-    )
-	f:close()
-end
-
--- TODO: this!!!
---[[
-1. get repo from table
-2. check if repo already installed, if not then add to snapshot then install it
-3. check if said repo have a run command defined
---]]
-
-function Git.check_remote(remote_repo)
-	local _, _, c = os.execute("git ls-remote " .. remote_repo)
-	return c
-end
-
-function Git.get_repo_from_table(git_pkgs)
-	local t = {}
-	for k, v in pairs(git_pkgs) do
-		local repo = v["repo"]
-		if not repo or repo == "" then
-			print(color.error .. ('[ERROR]: repo "%s" dont exist dumbass'):format(repo))
-			return {}
-		end
-		t[repo] = v["run"]
-	end
-	return t
-end
-
--- function Git.install(repo, git_pkgs)
--- 	if Git.check_remote(["repo"]) > 0 then
--- 		for k, v in pairs(git_pkgs) do
--- 			print("ERR")
--- 			return
--- 		end -- TODO: handle this
---
--- 		if v["run"] then
--- 			os.execute(("cd %s && %s"):format(gitclone_path, v["run"]))
--- 		end
--- 	end
--- end
 
 local function _CLI()
 	local path = _make_config()
