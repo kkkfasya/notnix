@@ -4,14 +4,14 @@ local Config = {}
 -- to remove package simply remove it from this list.
 -- [field-type]     : string
 Config.pkgs = {
-    "neovim",
+    -- "neovim", -- use neovim btw
 }
 
 -- flatpak pkgs
 -- INFO: please configure flathub repo before using this
 -- [field-type]     : string
 Config.flatpaks = {
-    -- "com.rafaelmardojai.Blanket", -- relaxing app, GTK tho
+
 }
 
 -- for adding extra repo like copr, ppa, and so on
