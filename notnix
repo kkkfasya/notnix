@@ -1,4 +1,4 @@
-#!/usr/bin/lua
+#!/usr/bin/env lua
 -- notnix
 -- Copyright (c) 2025 Kamal Fasya
 -- This is free a software licensed under the terms of the MIT license. See LICENSE for details.
