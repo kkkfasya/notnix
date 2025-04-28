@@ -251,7 +251,22 @@ local function notnix(cfg_file, is_tracking)
 		os.exit(1)
 	end
 
+	local pkgs = Util.detect_changes(Config.pkgs, s_pkg)
 	local flat = Util.detect_changes(Config.flatpaks, s_flat)
+	local repos = Util.detect_changes(Config.repos, s_repo)
+
+    -- ik this kinda ruins the code structure but this is the most i can do 
+    -- stylua: ignore start
+	if (#pkgs.add == 0 and #pkgs.remove == 0
+        and #flat.add == 0 and #flat.remove == 0
+        and #repos.add == 0 and #repos.remove == 0
+    ) then
+		print(CHUD)
+		print("[INFO]: Nothing to do, no packages added/removed")
+		os.exit(0)
+	end
+    -- stylua: ignore end
+
 	if #flat.add > 0 then
 		local y = Config.assume_yes_install and " -y" or ""
 		print("[INFO]: Installing new flatpak:")
@@ -294,7 +309,6 @@ local function notnix(cfg_file, is_tracking)
 		os.exit(1)
 	end
 
-	local repos = Util.detect_changes(Config.repos, s_repo)
 	if #repos.add > 0 then
 		print("[INFO]: Adding new repos:")
 		for i = 1, #repos.add do
@@ -333,43 +347,36 @@ local function notnix(cfg_file, is_tracking)
 		end
 	end
 
-	local p_dups = Util.detect_dups(Config.pkgs)
-	if #p_dups > 0 then
+	local pkgs_dups = Util.detect_dups(Config.pkgs)
+	if #pkgs_dups > 0 then
 		print(color.error .. "[ERROR]: found duplicates:")
-		for i = 1, #p_dups do
-			print(color.error .. "\t- " .. p_dups[i])
+		for i = 1, #pkgs_dups do
+			print(color.error .. "\t- " .. pkgs_dups[i])
 		end
 
 		print(color.error .. "[ERROR]: please remove duplicates to continue")
 		os.exit(1)
 	end
 
-	local p = Util.detect_changes(Config.pkgs, s_pkg)
-	if #p.add == 0 and #p.remove == 0 then
-        -- TODO: figure out the best way to show this chud
-		print(CHUD)
-		print("[INFO]: Nothing to do, no packages added/removed")
-		os.exit(0)
-	end
 
-	if #p.add > 0 then
+	if #pkgs.add > 0 then
 		print("[INFO]: Installing new packages:")
-		for i = 1, #p.add do
-			print("\t- " .. p.add[i])
+		for i = 1, #pkgs.add do
+			print("\t- " .. pkgs.add[i])
 		end
 
-		if Pkg.install(p.add, Config.install, Config.assume_yes_install) > 0 then
+		if Pkg.install(pkgs.add, Config.install, Config.assume_yes_install) > 0 then
 			os.exit(1)
 		end
 		Util.snapshot(Config.pkgs, path .. SNAPSHOT_PKG)
 	end
 
-	if #p.remove > 0 then
+	if #pkgs.remove > 0 then
 		print("[INFO]: Removing packages:")
-		for i = 1, #p.remove do
-			print("\t- " .. p.remove[i])
+		for i = 1, #pkgs.remove do
+			print("\t- " .. pkgs.remove[i])
 		end
-		if Pkg.remove(p.remove, Config.remove, Config.assume_yes_remove) > 0 then
+		if Pkg.remove(pkgs.remove, Config.remove, Config.assume_yes_remove) > 0 then
 			os.exit(1)
 		end
 		Util.snapshot(Config.pkgs, path .. SNAPSHOT_PKG)
