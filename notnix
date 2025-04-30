@@ -58,7 +58,7 @@ local function _get_config_dir_path()
 	return path
 end
 
--- make config file if not available
+-- make config file and folder if not available
 local function _make_config()
 	local path = _get_config_dir_path()
 
@@ -255,7 +255,7 @@ local function notnix(cfg_file, is_tracking)
 	local flat = Util.detect_changes(Config.flatpaks, s_flat)
 	local repos = Util.detect_changes(Config.repos, s_repo)
 
-    -- ik this kinda ruins the code structure but this is the most i can do 
+    -- ik this kinda ruins the code structure but this is the most i can do
     -- stylua: ignore start
 	if (#pkgs.add == 0 and #pkgs.remove == 0
         and #flat.add == 0 and #flat.remove == 0
@@ -393,11 +393,11 @@ usage: notnix [option]
     -h              | --help            | help ->   show this help message
 
     -f <filename>   | --file <filename> |      ->   use config file to install pkgs
-                                                    with this flag installed pkgs wont be tracked 
+                                                    with this flag installed pkgs wont be tracked
                                                     so your $XDG_CONFIG_HOME stays clean
 
     upgrade         | update            | up   ->   upgrading packages found in the list
-    list-pkg        | lp                |      ->   list all packages installed
+    update-fp       | upf               |      ->   update flatpak packages found in the list
     list-fp         | lfp               |      ->   list all flatpak app
     list-repo       | lr                |      ->   list all added repo (e.g copr repo)
 ]]
@@ -431,6 +431,10 @@ usage: notnix [option]
 			end
 			Pkg.install(Config.pkgs, Config.upgrade, Config.assume_yes_install)
 			os.exit(0)
+
+        elseif arg[1] == "upf" or arg[1] == "update-fp" then
+            _, _, c = os.execute("flatpak update")
+			os.exit(c)
 
 		elseif arg[1] == "lp" or arg[1] == "list-pkg" then
 			local s_pkgs = dofile(path .. SNAPSHOT_PKG)
