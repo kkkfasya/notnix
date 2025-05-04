@@ -110,7 +110,6 @@ end
 -- general purpose utils for both Git and Pkg
 local Util = {}
 
--- TODO: do i really need to use this?
 -- load table of string and turn them into a single string delimited by spaces
 function Util.load(pkgs_table)
 	local s = ""
@@ -201,17 +200,15 @@ end
 -- category specific utils
 local Pkg = {}
 
--- TODO: simplify this, instead of installing "sudo dnf install pkg1 pkg2" all at once
--- install seperately such as "sudo dnf install pkg1" then "sudo dnf install pkg2"
 function Pkg.install(pkgs_table, install_cmd, assume_yes)
 	local yes = assume_yes and "yes | " or ""
-	local _, _, c = os.execute(yes .. install_cmd .. " " .. Util.load(pkgs_table))
+	local _, _, c = os.execute(("%s %s %s"):format(yes, install_cmd, Util.load(pkgs_table)))
 	return c
 end
 
 function Pkg.remove(pkgs_table, remove_cmd, assume_yes)
 	local yes = assume_yes and "yes | " or ""
-	local _, _, c = os.execute(yes .. remove_cmd .. " " .. Util.load(pkgs_table))
+	local _, _, c = os.execute(("%s %s %s"):format(yes, remove_cmd, Util.load(pkgs_table)))
 	return c
 end
 
@@ -219,7 +216,7 @@ end
 -- @string cfg_file the path to notnix config file, see config.lua
 -- @boolean is_tracking=true will track installed package, you might not want this if you just want to install pkgs
 -- since this will create folder in $HOME/.config/notnix (or $XDG_CONFIG_HOME if specified)
--- this function will exit and not return anything!
+-- this function will do os.exit, no return
 -- exit code > 0 is error
 local function notnix(cfg_file, is_tracking)
 	local s_pkg
@@ -240,7 +237,7 @@ local function notnix(cfg_file, is_tracking)
 		s_flat = dofile(path .. SNAPSHOT_FLATPAK)
 	end
 
-    -- DETECT DUPS --
+	-- DETECT DUPS --
 	local flat_dups = Util.detect_dups(Config.flatpaks)
 	if #flat_dups > 0 then
 		print(color.error .. "[ERROR]: found duplicates:")
@@ -274,12 +271,11 @@ local function notnix(cfg_file, is_tracking)
 		os.exit(1)
 	end
 
-
 	local pkgs = Util.detect_changes(Config.pkgs, s_pkg)
 	local flat = Util.detect_changes(Config.flatpaks, s_flat)
 	local repos = Util.detect_changes(Config.repos, s_repo)
 
-    -- ik this kinda ruins the code structure but this is the most i can do
+    -- if no changes whatsoever print CHUD, because nothing happens
     -- stylua: ignore start
 	if (#pkgs.add == 0 and #pkgs.remove == 0
         and #flat.add == 0 and #flat.remove == 0
@@ -289,9 +285,9 @@ local function notnix(cfg_file, is_tracking)
 		print("[INFO]: Nothing to do, no packages added/removed")
 		os.exit(0)
 	end
-    -- stylua: ignore end
+	-- stylua: ignore end
 
-    -- == FLATPAK INSTALL & REMOVE ==
+	-- == FLATPAK INSTALL & REMOVE ==
 	if #flat.add > 0 then
 		local y = Config.assume_yes_install and " -y" or ""
 		print("[INFO]: Installing new flatpak:")
@@ -323,12 +319,12 @@ local function notnix(cfg_file, is_tracking)
 		end
 	end
 
-    -- == REPOS INSTALL & REMOVE ==
+	-- == REPOS ADD & REMOVE ==
 	if #repos.add > 0 then
 		print("[INFO]: Adding new repos:")
 		for i = 1, #repos.add do
 			print("\t- " .. repos.add[i])
-			local _, _, c = os.execute(("sudo %s %s -y"):format(Config.add_repo, repos.add[i]))
+			local _, _, c = os.execute(("%s %s -y"):format(Config.add_repo, repos.add[i]))
 
 			if c > 0 then
 				print(color.error .. "[ERROR]: Cant add repo: " .. repos.add[i])
@@ -351,7 +347,7 @@ local function notnix(cfg_file, is_tracking)
 		print("[INFO]: Removing repos:")
 		for i = 1, #repos.remove do
 			print("\t- " .. repos.remove[i])
-			local _, _, c = os.execute(("sudo %s %s -y"):format(Config.remove_repo, repos.remove[i]))
+			local _, _, c = os.execute(("%s %s -y"):format(Config.remove_repo, repos.remove[i]))
 
 			if c > 0 then
 				print(color.error .. "[ERROR]: Cant remove repo: " .. repos.remove[i])
@@ -362,8 +358,7 @@ local function notnix(cfg_file, is_tracking)
 		end
 	end
 
-
-    -- == REPOS INSTALL & REMOVE ==
+	-- == PKGS INSTALL & REMOVE ==
 	if #pkgs.add > 0 then
 		print("[INFO]: Installing new packages:")
 		for i = 1, #pkgs.add do
@@ -388,7 +383,7 @@ local function notnix(cfg_file, is_tracking)
 	end
 end
 
-local function main(cfg_file)
+local function main()
 	local path = _get_config_dir_path() -- ends in '/' e.g bla/bla/notnix/
 	-- local s_gits = dofile(path .. SNAPSHOT_PKG)
 
@@ -438,7 +433,7 @@ usage: notnix [option]
 			os.exit(0)
 
         elseif arg[1] == "upf" or arg[1] == "update-fp" then
-            _, _, c = os.execute("flatpak update")
+            local _, _, c = os.execute("flatpak update")
 			os.exit(c)
 
 		elseif arg[1] == "lp" or arg[1] == "list-pkg" then
@@ -485,7 +480,6 @@ usage: notnix [option]
 
 	else
         _make_config()
-		local path = _get_config_dir_path()
 	    notnix(path .. CONFIG_FILENAME, true)
 	end
 	-- stylua: ignore end
