@@ -240,6 +240,7 @@ local function notnix(cfg_file, is_tracking)
 		s_flat = dofile(path .. SNAPSHOT_FLATPAK)
 	end
 
+    -- DETECT DUPS --
 	local flat_dups = Util.detect_dups(Config.flatpaks)
 	if #flat_dups > 0 then
 		print(color.error .. "[ERROR]: found duplicates:")
@@ -250,6 +251,29 @@ local function notnix(cfg_file, is_tracking)
 		print(color.error .. "[ERROR]: please remove flatpak duplicates to continue")
 		os.exit(1)
 	end
+
+	local repo_dups = Util.detect_dups(Config.repos)
+	if #repo_dups > 0 then
+		print(color.error .. "[ERROR]: found duplicates:")
+		for i = 1, #repo_dups do
+			print(color.error .. "\t- " .. repo_dups[i])
+		end
+
+		print(color.error .. "[ERROR]: please remove repo duplicates to continue")
+		os.exit(1)
+	end
+
+	local pkgs_dups = Util.detect_dups(Config.pkgs)
+	if #pkgs_dups > 0 then
+		print(color.error .. "[ERROR]: found duplicates:")
+		for i = 1, #pkgs_dups do
+			print(color.error .. "\t- " .. pkgs_dups[i])
+		end
+
+		print(color.error .. "[ERROR]: please remove duplicates to continue")
+		os.exit(1)
+	end
+
 
 	local pkgs = Util.detect_changes(Config.pkgs, s_pkg)
 	local flat = Util.detect_changes(Config.flatpaks, s_flat)
@@ -267,6 +291,7 @@ local function notnix(cfg_file, is_tracking)
 	end
     -- stylua: ignore end
 
+    -- == FLATPAK INSTALL & REMOVE ==
 	if #flat.add > 0 then
 		local y = Config.assume_yes_install and " -y" or ""
 		print("[INFO]: Installing new flatpak:")
@@ -294,21 +319,11 @@ local function notnix(cfg_file, is_tracking)
 				print(color.error .. "[ERROR]: Cant remove flatpak: " .. flat.remove[i])
 				os.exit(1)
 			end
-			Util.snapshot(Config.flatpaks, path .. SNAPSHOT_REPO)
+			Util.snapshot(Config.flatpaks, path .. SNAPSHOT_FLATPAK)
 		end
 	end
 
-	local repo_dups = Util.detect_dups(Config.repos)
-	if #repo_dups > 0 then
-		print(color.error .. "[ERROR]: found duplicates:")
-		for i = 1, #repo_dups do
-			print(color.error .. "\t- " .. repo_dups[i])
-		end
-
-		print(color.error .. "[ERROR]: please remove repo duplicates to continue")
-		os.exit(1)
-	end
-
+    -- == REPOS INSTALL & REMOVE ==
 	if #repos.add > 0 then
 		print("[INFO]: Adding new repos:")
 		for i = 1, #repos.add do
@@ -347,18 +362,8 @@ local function notnix(cfg_file, is_tracking)
 		end
 	end
 
-	local pkgs_dups = Util.detect_dups(Config.pkgs)
-	if #pkgs_dups > 0 then
-		print(color.error .. "[ERROR]: found duplicates:")
-		for i = 1, #pkgs_dups do
-			print(color.error .. "\t- " .. pkgs_dups[i])
-		end
 
-		print(color.error .. "[ERROR]: please remove duplicates to continue")
-		os.exit(1)
-	end
-
-
+    -- == REPOS INSTALL & REMOVE ==
 	if #pkgs.add > 0 then
 		print("[INFO]: Installing new packages:")
 		for i = 1, #pkgs.add do
