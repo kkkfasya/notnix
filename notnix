@@ -7,8 +7,7 @@
 
 -- TODO: make a pkgs_git, it will clone git repo and do installation on command provided by user
 -- NOTE: maybe that should be separate software
---
--- TODO: use ldoc for better documentation
+
 local CHUD = [[
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⠿⣿⣿⣿
@@ -44,6 +43,8 @@ local SNAPSHOT_FLATPAK = ".snapshot_flatpak.lua"
 local SNAPSHOT_GIT = ".snapshot_git.lua"
 local CONFIG_FILENAME = "config.lua"
 
+---@param file string path to file
+---@return boolean
 local function is_file_exist(file)
 	local _, err = os.rename(file, file)
 	if err then
@@ -61,7 +62,7 @@ local function print_error(msg, err_color)
 	os.exit(1)
 end
 
--- return value is path to config folder
+---@return string path
 local function _get_config_dir_path()
 	local home = os.getenv("HOME")
 	local xdg_config_home = os.getenv("XDG_CONFIG_HOME")
@@ -70,7 +71,7 @@ local function _get_config_dir_path()
 	return path
 end
 
--- make config file and folder if not available
+---make config file and folder if not available
 local function _make_config()
 	local path = _get_config_dir_path()
 
@@ -121,7 +122,9 @@ end
 -- general purpose utils for both Git and Pkg
 local Util = {}
 
--- load table of string and turn them into a single string delimited by spaces
+---load table of string and turn them into a single string delimited by spaces
+---@param pkgs_table table
+---@return string
 function Util.load(pkgs_table)
 	local s = ""
 
@@ -138,6 +141,10 @@ function Util.load(pkgs_table)
 	return s
 end
 
+---will save the pkgs_table to a given luafile
+---so then it can easily be used to track the changing state of the table
+---@param pkgs_table table
+---@param luafile string
 function Util.snapshot(pkgs_table, luafile)
 	local t = "return {\n"
 
@@ -156,7 +163,9 @@ function Util.snapshot(pkgs_table, luafile)
 	f:close()
 end
 
--- return table of found dups
+---return table of found dups
+---@param pkgs table
+---@return string[]
 function Util.detect_dups(pkgs)
 	local t_dups = {}
 	table.sort(pkgs)
@@ -173,7 +182,15 @@ function Util.detect_dups(pkgs)
 	return t_dups
 end
 
--- return a nested table of add and remove
+---@class ChangesTable
+---@field add string[] List of added packages compared to snapshot
+---@field remove string[] List of removed packages compared to snapshot
+
+--- Detects changes between a package list and a snapshot.
+--- Compares a list of packages against a snapshot to identify added/removed packages
+--- @param pkg string[] List of package names to compare against the snapshot
+--- @param snapshot? string[] | nil list of package names representing the current state; defaults to empty table if nil
+---@return ChangesTable # table with `add` and `remove` field
 function Util.detect_changes(pkg, snapshot)
 	if snapshot == nil then
 		snapshot = {}
@@ -208,41 +225,53 @@ function Util.detect_changes(pkg, snapshot)
 	return changes
 end
 
--- category specific utils
+--- @class Pkg
+--- @field install fun(pkgs_table: string[], install_cmd: string, assume_yes: boolean): integer
+--- @field remove fun(pkgs_table: string[], remove_cmd: string, assume_yes: boolean): integer
 local Pkg = {}
 
+-- idk if docs below is necessary but whatever
+
+---Install packages based on given list of packages using distro pkg-manager
+---@param pkgs_table string[]
+---@param install_cmd string
+---@param assume_yes boolean
+---@return integer code # return a status code, if code > 0 then it's error
 function Pkg.install(pkgs_table, install_cmd, assume_yes)
 	local yes = assume_yes and "yes | " or ""
 	local _, _, c = os.execute(("%s %s %s"):format(yes, install_cmd, Util.load(pkgs_table)))
 	return c
 end
 
+---Remove packages based on given list of packages using distro pkg-manager
+---@param pkgs_table string[]
+---@param install_cmd string
+---@param assume_yes boolean
+---@return integer code # return a status code, if code > 0 then it's error
 function Pkg.remove(pkgs_table, remove_cmd, assume_yes)
 	local yes = assume_yes and "yes | " or ""
 	local _, _, c = os.execute(("%s %s %s"):format(yes, remove_cmd, Util.load(pkgs_table)))
 	return c
 end
 
--- TODO: should this function only accept table?
---- Main notnix functionality
----@param cfg table table of notnix config
--- if table is given no file will be opened
--- @boolean is_tracking=true will track installed package, you might not want this if you just want to install pkgs
--- since this will create folder in $HOME/.config/notnix (or $XDG_CONFIG_HOME if specified)
--- this function will do os.exit, no return
--- exit code > 0 is error
+---Main notnix functionality
+---this function will do os.exit, no return
+---exit code > 0 is error
+---@param cfg Config
+---@param is_tracking boolean will track installed package, you might not want this if you just want to install pkgs since this will create folder in $HOME/.config/notnix/ (or $XDG_CONFIG_HOME if specified)
 local function notnix(cfg, is_tracking)
 	local s_pkg
 	local s_repo
 	local s_flat
 
+	---@type Config
 	local Config
 	local path = _get_config_dir_path()
 
 	if type(cfg) == "table" then
 		Config = cfg
-	elseif type(cfg) == "string" then
-		Config = dofile(cfg)
+	else
+		print_error("[ERROR]: notnix() only accept table")
 	end
 
 	if cfg == nil then
@@ -404,7 +433,6 @@ end
 
 local function main()
 	local path = _get_config_dir_path() -- ends in '/' e.g bla/bla/notnix/
-	-- local s_gits = dofile(path .. SNAPSHOT_PKG)
 
 	local help_msg = [[notnix: nix-like package-manager but not really
 Usage: notnix [option]
@@ -413,11 +441,12 @@ Options:
   -h, --help                     Show this help message
   -f, --file <filename>          Install packages from a config file (untracked, keeps $XDG_CONFIG_HOME clean)
   -xi, --xarg-install <arg>      Pass an extra argument to the package manager when installing pkgs
-  -xd, --xarg-remove <arg>       Pass an extra argument to the package manager when remove pkgs
-  upgrade, update, up            Upgrade packages listed in the configuration
-  update-fp, upf                 Update Flatpak packages from the list
-  list-fp, lfp                   List all installed Flatpak applications
-  list-repo, lr                  List all added repositories (e.g., COPR repos)
+  -xr, --xarg-remove <arg>       Pass an extra argument to the package manager when remove pkgs
+
+  up, update, upgrade            Upgrade packages listed in the configuration
+  upf, update-fp                 Update Flatpak packages from the list
+  lfp, list-fp                   List all installed Flatpak applications
+  lr, list-repo                  List all added repositories (e.g., COPR repos)
 ]]
 
 	if arg[1] ~= nil then
@@ -456,7 +485,9 @@ Options:
 		end
 
 		if arg[1] == "upf" or arg[1] == "update-fp" then
-			local _, _, c = os.execute("flatpak update")
+			local s_fp = dofile(path .. SNAPSHOT_FLATPAK)
+            local flats = table.concat(s_fp, " ")
+			local _, _, c = os.execute("flatpak update " .. flats)
 			os.exit(c)
 		end
 
@@ -497,9 +528,9 @@ Options:
 			os.exit(0)
 		end
 
-		if arg[1] == "-xd" or arg[1] == "--xarg-delete" then
+		if arg[1] == "-xr" or arg[1] == "--xarg-remove" then
 			if not arg[2] then
-				print_error("[ERROR]: Provide at least one argument after -xd")
+				print_error("[ERROR]: Provide at least one argument after -xr")
 			end
 
 			local extra_args = {}
@@ -525,22 +556,8 @@ Options:
 			os.exit(0)
 		end
 
-		-- WARNING: NOT IMPLEMENTED YET
-		if arg[1] == "lg" or arg[1] == "list-git" then
-			local Config = dofile(path .. CONFIG_FILENAME)
-			-- this somehow doesnt output a determinate list,
-			-- it kinda shuffles, but doesn't matter because it doesnt affect functionality
-			print("[INFO]: List of git repos\n")
-			for k, v in pairs(Config.git_pkgs) do
-				print(k)
-				print("\t- repo : ", v["repo"])
-				print("\t- run  :", v["run"])
-			end
-			os.exit(0)
-		end
-
 		if arg[1] == "-x" then
-			print(color.error .. "[ERROR]: Did you mean -xi? or -xd? notnix -h for more information")
+			print(color.error .. "[ERROR]: Did you mean -xi? or -xr? notnix -h for more information")
 			os.exit(1)
 		else
 			print(color.error .. "[ERROR]: Wrong argument fool, use -h for more info")
