@@ -442,10 +442,11 @@ Options:
   -f, --file <filename>          Install packages from a config file (untracked, keeps $XDG_CONFIG_HOME clean)
   -xi, --xarg-install <arg>      Pass an extra argument to the package manager when installing pkgs
   -xr, --xarg-remove <arg>       Pass an extra argument to the package manager when remove pkgs
-  upgrade, update, up            Upgrade packages listed in the configuration
-  update-fp, upf                 Update Flatpak packages from the list
-  list-fp, lfp                   List all installed Flatpak applications
-  list-repo, lr                  List all added repositories (e.g., COPR repos)
+
+  up, update, upgrade            Upgrade packages listed in the configuration
+  upf, update-fp                 Update Flatpak packages from the list
+  lfp, list-fp                   List all installed Flatpak applications
+  lr, list-repo                  List all added repositories (e.g., COPR repos)
 ]]
 
 	if arg[1] ~= nil then
@@ -484,7 +485,9 @@ Options:
 		end
 
 		if arg[1] == "upf" or arg[1] == "update-fp" then
-			local _, _, c = os.execute("flatpak update")
+			local s_fp = dofile(path .. SNAPSHOT_FLATPAK)
+            local flats = table.concat(s_fp, " ")
+			local _, _, c = os.execute("flatpak update " .. flats)
 			os.exit(c)
 		end
 
