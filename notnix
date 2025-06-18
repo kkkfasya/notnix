@@ -5,9 +5,6 @@
 
 -- fuck libdnf5, wym "attributeerror: 'RepoSackWeakPtr' object has no attribute 'load_repos'"???? I follow the docs correctly motherfucker
 
--- TODO: make a pkgs_git, it will clone git repo and do installation on command provided by user
--- NOTE: maybe that should be separate software
-
 local CHUD = [[
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⠿⣿⣿⣿
@@ -239,18 +236,18 @@ local Pkg = {}
 ---@return integer code # return a status code, if code > 0 then it's error
 function Pkg.install(pkgs_table, install_cmd, assume_yes)
 	local yes = assume_yes and "yes | " or ""
-	local _, _, c = os.execute(("%s %s %s"):format(yes, install_cmd, Util.load(pkgs_table)))
+	local _, _, c = os.execute(("%s %s %s"):format(yes, install_cmd, Util.load(pkgs_table))) --[[@as integer]]
 	return c
 end
 
 ---Remove packages based on given list of packages using distro pkg-manager
 ---@param pkgs_table string[]
----@param install_cmd string
+---@param remove_cmd string
 ---@param assume_yes boolean
 ---@return integer code # return a status code, if code > 0 then it's error
 function Pkg.remove(pkgs_table, remove_cmd, assume_yes)
 	local yes = assume_yes and "yes | " or ""
-	local _, _, c = os.execute(("%s %s %s"):format(yes, remove_cmd, Util.load(pkgs_table)))
+	local _, _, c = os.execute(("%s %s %s"):format(yes, remove_cmd, Util.load(pkgs_table))) --[[@as integer]]
 	return c
 end
 
@@ -486,7 +483,7 @@ Options:
 
 		if arg[1] == "upf" or arg[1] == "update-fp" then
 			local s_fp = dofile(path .. SNAPSHOT_FLATPAK)
-            local flats = table.concat(s_fp, " ")
+			local flats = table.concat(s_fp, " ")
 			local _, _, c = os.execute("flatpak update " .. flats)
 			os.exit(c)
 		end
