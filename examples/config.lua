@@ -25,7 +25,6 @@ Config.pkgs = {
 	add_module({
 		php_pkgs,
 		cachyos_pkgs,
-		{ 0, nil },
 	}),
 	-- why do this? if you so happen to have similiar packages/dependencies it's cleaner this way
 	-- and also it's easier to remove instead of deleting bunch of items
