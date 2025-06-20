@@ -2,6 +2,7 @@ local Config = {}
 
 local php_pkgs = dofile("./modules/php.lua")
 local cachyos_pkgs = dofile("./modules/cachyos.lua")
+local util = require("./util")
 
 -- this is the beauty of using real programming language as a config language
 ---@param modules table<table<string>>
@@ -24,6 +25,9 @@ Config.pkgs = {
 	-- example of modular config
 	add_module({
 		php_pkgs,
+	}),
+
+	util.add_module({
 		cachyos_pkgs,
 	}),
 	-- why do this? if you so happen to have similiar packages/dependencies it's cleaner this way
