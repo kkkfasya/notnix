@@ -1,0 +1,48 @@
+-- it's local by default but i like it the explicit way to differentiate between 
+-- assignment and reassignment
+
+
+local SNAPSHOT_PKG = ".snapshot_pkg.lua"
+local SNAPSHOT_REPO = ".snapshot_repo.lua"
+local SNAPSHOT_FLATPAK = ".snapshot_flatpak.lua"
+local SNAPSHOT_GIT = ".snapshot_git.lua"
+local CONFIG_FILENAME = "config.lua"
+
+class Color
+    info: "\27[32m"
+    warn: "\27[33m"
+    error: "\27[31m"
+    reset: => print("\27[0m")
+
+
+Class Util
+    snapshot: (pkgs_table, luafile) =>
+        local t = "return {\n"
+
+        for i = 1, #pkgs_table do
+            -- local pkg = '"' .. pkgs_table[i] .. '"' .. ",\n" -- thank God lua allow trailing comma
+            '"' |> table.concat
+            t = t .. pkg
+
+        t = t .. "}"
+
+        local f = luafile
+            |> io.open "w"
+            |> assert
+
+        f |> io.write "-- WARNING: do not modify this file\n" .. t
+        f |> io.close
+
+        nil
+
+
+local is_file_exist = (file) ->
+	if suc, err := os.rename(file, file)
+        true -- implicit return
+
+local _get_config_dir_path = ->
+	local home = os.getenv("HOME")
+	local xdg_config_home = os.getenv("XDG_CONFIG_HOME")
+	local path = xdg_config_home and xdg_config_home .. "notnix/" or home .. "/.config/notnix/"
+
+	path

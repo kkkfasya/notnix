@@ -163,6 +163,7 @@ function Util.snapshot(pkgs_table, luafile)
 	f:close()
 end
 
+table.concat()
 ---return table of found dups
 ---@param pkgs table
 ---@return string[]
@@ -567,6 +568,7 @@ Options:
 		_make_config()
 		local cfg = dofile(path .. CONFIG_FILENAME)
 		notnix(cfg, true)
+        
 	end
 end
 
