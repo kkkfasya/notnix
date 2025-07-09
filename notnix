@@ -60,6 +60,7 @@ local function print_error(msg, err_color)
 end
 
 ---@return string path
+---returned path have trailing slash
 local function _get_config_dir_path()
 	local home = os.getenv("HOME")
 	local xdg_config_home = os.getenv("XDG_CONFIG_HOME")
@@ -429,141 +430,34 @@ local function notnix(cfg, is_tracking)
 end
 
 local function main()
-	local path = _get_config_dir_path() -- ends in '/' e.g bla/bla/notnix/
-
 	local help_msg = [[notnix: nix-like package-manager but not really
 Usage: notnix [option]
 
 Options:
   -h, --help                     Show this help message
   -f, --file <filename>          Install packages from a config file (untracked, keeps $XDG_CONFIG_HOME clean)
-  -xi, --xarg-install <arg>      Pass an extra argument to the package manager when installing pkgs
-  -xr, --xarg-remove <arg>       Pass an extra argument to the package manager when remove pkgs
+  -xi, --xarg-install <args...>  Pass extra arguments to the package manager when installing pkgs
+  -xr, --xarg-remove <args...>   Pass extra arguments to the package manager when removing pkgs
 
-  up, update, upgrade            Upgrade packages listed in the configuration
+  up, upgrade [args...]          Upgrade packages listed in the configuration,
+                                 optionally pass extra arguments when updating packages
   upf, update-fp                 Update Flatpak packages from the list
   lfp, list-fp                   List all installed Flatpak applications
   lr, list-repo                  List all added repositories (e.g., COPR repos)
 ]]
 
-	if arg[1] ~= nil then
-		if arg[1] == "-h" or arg[1] == "--help" or arg[1] == "help" then
-			print(help_msg)
-			os.exit(0)
-		end
+	local path = _get_config_dir_path()
+	local argparse = require("lib.argparse")
 
-		-- i dont use elseif because i think the syntax is ugly and hard to differentiate between blocks
-		if arg[1] == "-f" or arg[1] == "--file" then
-			local file = arg[2]
-			if file == nil then
-				print(color.error .. "[ERROR]: Provide a file after -f flag dude damn...")
-				os.exit(1)
-			end
+    -- stylua: ignore
+	local parser = argparse()
+        :name("notnix")
+        :description("nix-like package-manager but not really")
+        :epilog("for examples check: https://github.com/kkkfasya/notnix/tree/master/examples")
+        :add_complete()
 
-			if not is_file_exist(file) then
-				print(color.error .. "[ERROR]: File doesnt fucking exist")
-				os.exit(1)
-			end
-
-			local cfg = dofile(file)
-
-			notnix(cfg, false)
-		end
-
-		if arg[1] == "up" or arg[1] == "update" or arg[1] == "upgrade" then
-			local Config = dofile(path .. CONFIG_FILENAME)
-			local s_pkgs = dofile(path .. SNAPSHOT_PKG)
-			print("[INFO]: Upgrading packages")
-			for i = 1, #s_pkgs do
-				print("\t- " .. s_pkgs[i])
-			end
-			Pkg.install(Config.pkgs, Config.upgrade, Config.assume_yes_install)
-			os.exit(0)
-		end
-
-		if arg[1] == "upf" or arg[1] == "update-fp" then
-			local s_fp = dofile(path .. SNAPSHOT_FLATPAK)
-			local flats = table.concat(s_fp, " ")
-			local _, _, c = os.execute("flatpak update " .. flats)
-			os.exit(c)
-		end
-
-		if arg[1] == "lp" or arg[1] == "list-pkg" then
-			local s_pkgs = dofile(path .. SNAPSHOT_PKG)
-			print("[INFO]: List of Installed pkgs:")
-			for i = 1, #s_pkgs do
-				print("\t- " .. s_pkgs[i])
-			end
-			os.exit(0)
-		end
-
-		if arg[1] == "lr" or arg[1] == "list-pkg" then
-			local s_repos = dofile(path .. SNAPSHOT_REPO)
-			print("[INFO]: List of repos:")
-			for i = 1, #s_repos do
-				print("\t- " .. s_repos[i])
-			end
-			os.exit(0)
-		end
-
-		if arg[1] == "-xi" or arg[1] == "--xarg-install" then
-			if not arg[2] then
-				print_error("[ERROR]: Provide at least one argument after -xi")
-			end
-
-			local extra_args = {}
-			for i = 2, #arg do
-				table.insert(extra_args, arg[i])
-			end
-
-			local x = table.concat(extra_args, " ") .. " "
-
-			local cfg = dofile(path .. CONFIG_FILENAME)
-			cfg.remove = cfg.remove .. " " .. x
-			notnix(cfg, true)
-
-			os.exit(0)
-		end
-
-		if arg[1] == "-xr" or arg[1] == "--xarg-remove" then
-			if not arg[2] then
-				print_error("[ERROR]: Provide at least one argument after -xr")
-			end
-
-			local extra_args = {}
-			for i = 2, #arg do
-				table.insert(extra_args, arg[i])
-			end
-
-			local x = table.concat(extra_args, " ") .. " "
-
-			local cfg = dofile(path .. CONFIG_FILENAME)
-			cfg.remove = cfg.remove .. " " .. x
-			notnix(cfg, true)
-
-			os.exit(0)
-		end
-
-		if arg[1] == "lfp" or arg[1] == "list-lfp" then
-			local s_fp = dofile(path .. SNAPSHOT_FLATPAK)
-			print("[INFO]: Installed flatpak apps:")
-			for i = 1, #s_fp do
-				print("\t- " .. s_fp[i])
-			end
-			os.exit(0)
-		end
-
-		if arg[1] == "-x" then
-			print(color.error .. "[ERROR]: Did you mean -xi? or -xr? notnix -h for more information")
-			os.exit(1)
-		else
-			print(color.error .. "[ERROR]: Wrong argument fool, use -h for more info")
-			os.exit(1)
-		end
-
-		_make_config()
-		local cfg = dofile(path .. CONFIG_FILENAME)
-		notnix(cfg, true)
+	for key, value in pairs(parser) do
+		print(value)
 	end
 end
 
