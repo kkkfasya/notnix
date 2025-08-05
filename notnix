@@ -290,8 +290,7 @@ local function notnix(cfg, is_tracking)
 			print(color.error .. "\t- " .. flat_dups[i])
 		end
 
-		print(color.error .. "[ERROR]: please remove flatpak duplicates to continue")
-		os.exit(1)
+		print_error("[ERROR]: please remove flatpak duplicates to continue")
 	end
 
 	local repo_dups = Util.detect_dups(Config.repos)
@@ -301,8 +300,7 @@ local function notnix(cfg, is_tracking)
 			print(color.error .. "\t- " .. repo_dups[i])
 		end
 
-		print(color.error .. "[ERROR]: please remove repo duplicates to continue")
-		os.exit(1)
+		print_error("[ERROR]: please remove repo duplicates to continue")
 	end
 
 	local pkgs_dups = Util.detect_dups(Config.pkgs)
@@ -312,8 +310,7 @@ local function notnix(cfg, is_tracking)
 			print(color.error .. "\t- " .. pkgs_dups[i])
 		end
 
-		print(color.error .. "[ERROR]: please remove duplicates to continue")
-		os.exit(1)
+		print_error("[ERROR]: please remove duplicates to continue")
 	end
 
 	local pkgs = Util.detect_changes(Config.pkgs, s_pkg)
@@ -357,8 +354,7 @@ local function notnix(cfg, is_tracking)
 
 			local _, _, c = os.execute("flatpak uninstall " .. flat.remove[i] .. y)
 			if c > 0 then
-				print(color.error .. "[ERROR]: Cant remove flatpak: " .. flat.remove[i])
-				os.exit(1)
+				print_error("[ERROR]: Cant remove flatpak: " .. flat.remove[i])
 			end
 			Util.snapshot(Config.flatpaks, path .. SNAPSHOT_FLATPAK)
 		end
@@ -372,8 +368,7 @@ local function notnix(cfg, is_tracking)
 			local _, _, c = os.execute(("%s %s -y"):format(Config.add_repo, repos.add[i]))
 
 			if c > 0 then
-				print(color.error .. "[ERROR]: Cant add repo: " .. repos.add[i])
-				os.exit(1)
+				print_error("[ERROR]: Cant add repo: " .. repos.add[i])
 			end
 
 			-- i can return the FILE ptr and close it after the loop finishes
@@ -383,8 +378,7 @@ local function notnix(cfg, is_tracking)
 		end
 		local _, _, c = os.execute(Config.update_cache)
 		if c > 0 then
-			print(color.error .. "[ERROR]: Cant update repo cache")
-			os.exit(1)
+			print_error("[ERROR]: Cant update repo cache")
 		end
 	end
 
@@ -395,8 +389,7 @@ local function notnix(cfg, is_tracking)
 			local _, _, c = os.execute(("%s %s -y"):format(Config.remove_repo, repos.remove[i]))
 
 			if c > 0 then
-				print(color.error .. "[ERROR]: Cant remove repo: " .. repos.remove[i])
-				os.exit(1)
+				print_error("[ERROR]: Cant remove repo: " .. repos.remove[i])
 			end
 
 			Util.snapshot(Config.repos, path .. SNAPSHOT_REPO)
@@ -456,13 +449,13 @@ Options:
 		if arg[1] == "-f" or arg[1] == "--file" then
 			local file = arg[2]
 			if file == nil then
-				print(color.error .. "[ERROR]: Provide a file after -f flag dude damn...")
-				os.exit(1)
+				print_error("[ERROR]: Provide a file after -f flag dude damn...")
 			end
 
-			if not is_file_exist(file) then
-				print(color.error .. "[ERROR]: File doesnt fucking exist")
-				os.exit(1)
+			if
+				not is_file_exist(file --[[@as string]])
+			then
+				print_error("[ERROR]: File doesnt fucking exist")
 			end
 
 			local cfg = dofile(file)
@@ -554,17 +547,15 @@ Options:
 		end
 
 		if arg[1] == "-x" then
-			print(color.error .. "[ERROR]: Did you mean -xi? or -xr? notnix -h for more information")
-			os.exit(1)
+			print_error("[ERROR]: Did you mean -xi? or -xr? notnix -h for more information")
 		else
-			print(color.error .. "[ERROR]: Wrong argument fool, use -h for more info")
-			os.exit(1)
+			print_error("[ERROR]: Wrong argument fool, use -h for more info")
 		end
-
-		_make_config()
-		local cfg = dofile(path .. CONFIG_FILENAME)
-		notnix(cfg, true)
 	end
+
+	_make_config()
+	local cfg = dofile(path .. CONFIG_FILENAME)
+	notnix(cfg, true)
 end
 
 main()
