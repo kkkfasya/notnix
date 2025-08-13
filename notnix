@@ -59,67 +59,35 @@ local function print_error(msg, err_color)
 	os.exit(1)
 end
 
----@return string path
-local function _get_config_dir_path()
-	local home = os.getenv("HOME")
-	local xdg_config_home = os.getenv("XDG_CONFIG_HOME")
-
-	local path = xdg_config_home and xdg_config_home .. "notnix/" or home .. "/.config/notnix/"
-	return path
-end
-
----make config file and folder if not available
-local function _make_config()
-	local path = _get_config_dir_path()
-
-	if not is_file_exist(path) then
-		print(color.warn .. "[WARNING]: notnix config folder not found")
-		print("[INFO]: creating folder " .. path)
-		os.execute("mkdir " .. path)
-	end
-
-	if not is_file_exist(path .. SNAPSHOT_PKG) then
-		local f = assert(io.open(path .. SNAPSHOT_PKG, "w"), color.error .. "[ERROR]: cant create snapshot file")
-		print("[INFO]: creating folder " .. path)
-		f:write("-- WARNING: do not modify this file\nreturn {}")
-		f:close()
-	end
-
-	if not is_file_exist(path .. SNAPSHOT_GIT) then
-		local f = assert(io.open(path .. SNAPSHOT_GIT, "w"), color.error .. "[ERROR]: cant create snapshot file")
-		f:write("-- WARNING: do not modify this file\nreturn {}")
-		f:close()
-	end
-
-	if not is_file_exist(path .. SNAPSHOT_REPO) then
-		local f = assert(io.open(path .. SNAPSHOT_REPO, "w"), color.error .. "[ERROR]: cant create snapshot file")
-		f:write("-- WARNING: do not modify this file\nreturn {}")
-		f:close()
-	end
-
-	if not is_file_exist(path .. SNAPSHOT_FLATPAK) then
-		local f = assert(io.open(path .. SNAPSHOT_FLATPAK, "w"), color.error .. "[ERROR]: cant create snapshot file")
-		f:write("-- WARNING: do not modify this file\nreturn {}")
-		f:close()
-	end
-	if not is_file_exist(path .. "config.lua") then
-		print(color.warn .. "[WARNING]: config file doesn't exist")
-		color.reset()
-		print("[INFO]: creating config file, see " .. path .. CONFIG_FILENAME .. " for config options")
-		local _ = assert(io.open("./config.lua", "r"), color.error .. "[ERROR]: cant find config file in current dir")
-		local cfg = _:read("*a")
-		local f = assert(io.open(path .. "config.lua", "w"), color.error .. "[ERROR]: cant create config file")
-
-		f:write(cfg)
-		f:close()
-		_:close()
-	end
-end
-
 -- general purpose utils for both Git and Pkg
 local Util = {}
 
----load table of string and turn them into a single string delimited by spaces
+---@param a string
+---@param ... string
+---this is just python's os.path.join rewritten in lua lol
+---Join two or more path, inserting sep '/' as needed.
+---If any path after the first one is an absolute path, all previous path
+---will be discarded. An empty last part will result in a path that ends with a separator.
+function Util.join_path(a, ...)
+	local sep = "/"
+	local path = a
+	local p = { ... }
+
+	for i = 1, #p do
+		local b = p[i]
+		if b:sub(1, 1) == sep or not path then
+			path = b
+		elseif path:sub(-1) == sep then
+			path = path .. b
+		else
+			path = path .. sep .. b
+		end
+	end
+	return path
+end
+
+---load table of string and turn them into a single string delimited by spaces yet will have trailing space
+---e.g "fastfetch tmux nvim "
 ---@param pkgs_table table
 ---@return string
 function Util.load(pkgs_table)
@@ -134,7 +102,6 @@ function Util.load(pkgs_table)
 		s = s .. pkgs_table[i]:gsub("%s+", "") .. " " -- yes, there will be trailing spaces and you will love it
 	end
 
-	-- will return something like "fastfetch tmux nvim "
 	return s
 end
 
@@ -251,11 +218,98 @@ function Pkg.remove(pkgs_table, remove_cmd, assume_yes)
 	return c
 end
 
+---@return string path
+---return a path to notnix config folder, does not have trailing slash
+local function _get_config_dir_path()
+	local home = os.getenv("HOME")
+	local xdg_config_home = os.getenv("XDG_CONFIG_HOME")
+
+	local path = xdg_config_home and xdg_config_home .. "notnix" or home .. "/.config/notnix"
+	return path
+end
+
+---make config folder and file on $HOME/.config/ or $XDG_CONFIG_HOME if not available
+local function _make_config()
+	local path = _get_config_dir_path()
+	local path_cfg = Util.join_path(path, CONFIG_FILENAME)
+	local path_snap_pkg = Util.join_path(path, SNAPSHOT_PKG)
+	local path_snap_repo = Util.join_path(path, SNAPSHOT_REPO)
+	local path_snap_flatpak = Util.join_path(path, SNAPSHOT_FLATPAK)
+	local cfg_str = [[--- @class Config
+--- @field pkgs string[] List of packages to install; remove packages from this list to uninstall
+--- @field flatpaks string[] List of Flatpak packages; WARNING: please configure Flathub repository before using this
+--- @field repos string[] List of extra repositories (e.g., COPR, PPA)
+--- @field install string Package manager install command (e.g., "sudo dnf install "), must include sudo
+--- @field remove string Package manager remove command (e.g., "sudo dnf remove "), must include sudo
+--- @field upgrade string Package manager upgrade command (e.g., "sudo dnf upgrade"), must include sudo
+--- @field add_repo string Command to add repository (e.g., "sudo dnf copr enable")
+--- @field remove_repo string Command to remove repository (e.g., "sudo dnf copr remove")
+--- @field update_cache string Command to update package manager cache (e.g., "sudo dnf makecache")
+--- @field assume_yes_install boolean If true, skips confirmation for installs; default: false
+--- @field assume_yes_remove boolean If true, skips confirmation for removals; default: false
+local Config = {}
+
+Config.pkgs = {}
+
+Config.flatpaks = {}
+
+Config.repos = {}
+
+Config.install = "sudo dnf install"
+Config.remove = "sudo dnf remove"
+Config.upgrade = "sudo dnf upgrade"
+
+Config.add_repo = "sudo dnf copr enable"
+Config.remove_repo = "sudo dnf copr remove"
+Config.update_cache = "sudo dnf makecache"
+
+Config.assume_yes_install = false
+Config.assume_yes_remove = false
+
+return Config]]
+
+	if not is_file_exist(path) then
+		print(color.warn .. "[WARNING]: notnix config folder not found")
+		color.reset()
+		print("[INFO]: creating folder " .. path)
+		os.execute("mkdir " .. path)
+	end
+
+	if not is_file_exist(path_snap_pkg) then
+		local f = assert(io.open(path_snap_pkg, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		print("[INFO]: creating folder " .. path)
+		f:write("-- WARNING: do not modify this file\nreturn {}")
+		f:close()
+	end
+
+	if not is_file_exist(path_snap_repo) then
+		local f = assert(io.open(path_snap_repo, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		f:write("-- WARNING: do not modify this file\nreturn {}")
+		f:close()
+	end
+
+	if not is_file_exist(path_snap_flatpak) then
+		local f = assert(io.open(path_snap_flatpak, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		f:write("-- WARNING: do not modify this file\nreturn {}")
+		f:close()
+	end
+
+	if not is_file_exist(path_cfg) then
+		print(color.warn .. "[WARNING]: config file doesn't exist")
+		color.reset()
+		print("[INFO]: creating config file, see " .. path_cfg .. " for config options")
+		local f = assert(io.open(path_cfg, "w"), color.error .. "[ERROR]: cant create config file")
+
+		f:write(cfg_str)
+		f:close()
+	end
+end
+
 ---Main notnix functionality
 ---this function will do os.exit, no return
 ---exit code > 0 is error
 ---@param cfg Config
----@param is_tracking boolean will track installed package, you might not want this if you just want to install pkgs since this will create folder in $HOME/.config/notnix/ (or $XDG_CONFIG_HOME if specified)
+---@param is_tracking boolean will track installed package, you might not want this if you just want to install pkgs since this will create folder in $HOME/.config/notnix (or $XDG_CONFIG_HOME if exists)
 local function notnix(cfg, is_tracking)
 	local s_pkg
 	local s_repo
@@ -277,9 +331,9 @@ local function notnix(cfg, is_tracking)
 	end
 
 	if is_tracking then
-		s_pkg = dofile(path .. SNAPSHOT_PKG)
-		s_repo = dofile(path .. SNAPSHOT_REPO)
-		s_flat = dofile(path .. SNAPSHOT_FLATPAK)
+		s_pkg = dofile(Util.join_path(path, SNAPSHOT_PKG))
+		s_repo = dofile(Util.join_path(path, SNAPSHOT_REPO))
+		s_flat = dofile(Util.join_path(path, SNAPSHOT_FLATPAK))
 	end
 
 	-- DETECT DUPS --
@@ -422,7 +476,7 @@ local function notnix(cfg, is_tracking)
 end
 
 local function main()
-	local path = _get_config_dir_path() -- ends in '/' e.g bla/bla/notnix/
+	local path = _get_config_dir_path()
 
 	local help_msg = [[notnix: nix-like package-manager but not really
 Usage: notnix [option]
@@ -464,8 +518,8 @@ Options:
 		end
 
 		if arg[1] == "up" or arg[1] == "update" or arg[1] == "upgrade" then
-			local Config = dofile(path .. CONFIG_FILENAME)
-			local s_pkgs = dofile(path .. SNAPSHOT_PKG)
+			local Config = dofile(Util.join_path(path, CONFIG_FILENAME))
+			local s_pkgs = dofile(Util.join_path(path, SNAPSHOT_PKG))
 			print("[INFO]: Upgrading packages")
 			for i = 1, #s_pkgs do
 				print("\t- " .. s_pkgs[i])
@@ -475,14 +529,14 @@ Options:
 		end
 
 		if arg[1] == "upf" or arg[1] == "update-fp" then
-			local s_fp = dofile(path .. SNAPSHOT_FLATPAK)
+			local s_fp = dofile(Util.join_path(path, SNAPSHOT_FLATPAK))
 			local flats = table.concat(s_fp, " ")
 			local _, _, c = os.execute("flatpak update " .. flats)
 			os.exit(c)
 		end
 
 		if arg[1] == "lp" or arg[1] == "list-pkg" then
-			local s_pkgs = dofile(path .. SNAPSHOT_PKG)
+			local s_pkgs = dofile(Util.join_path(path, SNAPSHOT_PKG))
 			print("[INFO]: List of Installed pkgs:")
 			for i = 1, #s_pkgs do
 				print("\t- " .. s_pkgs[i])
@@ -491,7 +545,7 @@ Options:
 		end
 
 		if arg[1] == "lr" or arg[1] == "list-pkg" then
-			local s_repos = dofile(path .. SNAPSHOT_REPO)
+			local s_repos = dofile(Util.join_path(path, SNAPSHOT_REPO))
 			print("[INFO]: List of repos:")
 			for i = 1, #s_repos do
 				print("\t- " .. s_repos[i])
@@ -511,8 +565,8 @@ Options:
 
 			local x = table.concat(extra_args, " ") .. " "
 
-			local cfg = dofile(path .. CONFIG_FILENAME)
-			cfg.remove = cfg.remove .. " " .. x
+			local cfg = dofile(Util.join_path(path, CONFIG_FILENAME))
+			cfg.install = cfg.install .. " " .. x
 			notnix(cfg, true)
 
 			os.exit(0)
@@ -530,7 +584,7 @@ Options:
 
 			local x = table.concat(extra_args, " ") .. " "
 
-			local cfg = dofile(path .. CONFIG_FILENAME)
+			local cfg = dofile(Util.join_path(path, CONFIG_FILENAME))
 			cfg.remove = cfg.remove .. " " .. x
 			notnix(cfg, true)
 
@@ -538,7 +592,7 @@ Options:
 		end
 
 		if arg[1] == "lfp" or arg[1] == "list-lfp" then
-			local s_fp = dofile(path .. SNAPSHOT_FLATPAK)
+			local s_fp = dofile(Util.join_path(path, SNAPSHOT_FLATPAK))
 			print("[INFO]: Installed flatpak apps:")
 			for i = 1, #s_fp do
 				print("\t- " .. s_fp[i])
@@ -554,7 +608,7 @@ Options:
 	end
 
 	_make_config()
-	local cfg = dofile(path .. CONFIG_FILENAME)
+	local cfg = dofile(Util.join_path(path, CONFIG_FILENAME))
 	notnix(cfg, true)
 end
 

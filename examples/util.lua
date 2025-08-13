@@ -1,5 +1,3 @@
--- Or you can seperate the add_module function to a seperate file for cleaner looks
-
 local M = {}
 
 ---@param modules table<table<string>>

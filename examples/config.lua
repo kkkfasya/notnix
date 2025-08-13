@@ -1,21 +1,8 @@
+-- this is to add current notnix/ config dir and modules/ dir to package.path so lua require() can search for modules here
+local confdir = debug.getinfo(1, "S").source:sub(2):match("^(.-notnix[/\\])")
+package.path = ("%s;%s/?.lua;%s/modules/?.lua"):format(package.path, confdir, confdir)
+
 local Config = {}
-
-local php_pkgs = dofile("./modules/php.lua")
-local cachyos_pkgs = dofile("./modules/cachyos.lua")
-local util = require("./util")
-
--- this is the beauty of using real programming language as a config language
----@param modules table<table<string>>
----@return string[]...
-local function add_module(modules)
-	local t = {}
-	for _, i in ipairs(modules) do
-		for _, j in ipairs(i) do
-			table.insert(t, j)
-		end
-	end
-	return table.unpack(t)
-end
 
 Config.pkgs = {
 	"neovim",
@@ -23,12 +10,12 @@ Config.pkgs = {
 	"ghostty", -- this pkg is from extra repo, a copr repo from pgdev/ghostty
 
 	-- example of modular config
-	add_module({
-		php_pkgs,
-	}),
 
-	util.add_module({
-		cachyos_pkgs,
+	-- NOTE: must be put at the end otherwise wouldn't return all
+	-- iterables items because fuck you
+	require("util").add_module({
+		require("modules.php"),
+		require("modules.dnf-plugins"),
 	}),
 	-- why do this? if you so happen to have similiar packages/dependencies it's cleaner this way
 	-- and also it's easier to remove instead of deleting bunch of items

@@ -1,6 +1,6 @@
 --- @class Config
 --- @field pkgs string[] List of packages to install; remove packages from this list to uninstall
---- @field flatpaks string[] List of Flatpak packages; please configure Flathub repository before using this
+--- @field flatpaks string[] List of Flatpak packages; WARNING: please configure Flathub repository before using this
 --- @field repos string[] List of extra repositories (e.g., COPR, PPA)
 --- @field install string Package manager install command (e.g., "sudo dnf install "), must include sudo
 --- @field remove string Package manager remove command (e.g., "sudo dnf remove "), must include sudo
