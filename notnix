@@ -396,7 +396,7 @@ local function notnix(cfg, is_tracking)
 				os.exit(1)
 			end
 
-			Util.snapshot(Config.flatpaks, path .. SNAPSHOT_FLATPAK)
+			Util.snapshot(Config.flatpaks, Util.join_path(path, SNAPSHOT_FLATPAK))
 		end
 	end
 
@@ -410,7 +410,7 @@ local function notnix(cfg, is_tracking)
 			if c > 0 then
 				print_error("[ERROR]: Cant remove flatpak: " .. flat.remove[i])
 			end
-			Util.snapshot(Config.flatpaks, path .. SNAPSHOT_FLATPAK)
+			Util.snapshot(Config.flatpaks, Util.join_path(path, SNAPSHOT_FLATPAK))
 		end
 	end
 
@@ -428,7 +428,7 @@ local function notnix(cfg, is_tracking)
 			-- i can return the FILE ptr and close it after the loop finishes
 			-- it's faster, but unnecessary as i am not running on apollo 11 computer
 			-- BUT I'M ITCHING TO OPTIMIZE IT OH GOD I LOVE PREMATURE OPTIMIZATION
-			Util.snapshot(Config.repos, path .. SNAPSHOT_REPO)
+			Util.snapshot(Config.repos, Util.join_path(path, SNAPSHOT_REPO))
 		end
 		local _, _, c = os.execute(Config.update_cache)
 		if c > 0 then
@@ -446,7 +446,7 @@ local function notnix(cfg, is_tracking)
 				print_error("[ERROR]: Cant remove repo: " .. repos.remove[i])
 			end
 
-			Util.snapshot(Config.repos, path .. SNAPSHOT_REPO)
+			Util.snapshot(Config.repos, Util.join_path(path, SNAPSHOT_REPO))
 		end
 	end
 
@@ -460,7 +460,8 @@ local function notnix(cfg, is_tracking)
 		if Pkg.install(pkgs.add, Config.install, Config.assume_yes_install) > 0 then
 			os.exit(1)
 		end
-		Util.snapshot(Config.pkgs, path .. SNAPSHOT_PKG)
+
+		Util.snapshot(Config.pkgs, Util.join_path(path, SNAPSHOT_PKG))
 	end
 
 	if #pkgs.remove > 0 then
@@ -471,7 +472,7 @@ local function notnix(cfg, is_tracking)
 		if Pkg.remove(pkgs.remove, Config.remove, Config.assume_yes_remove) > 0 then
 			os.exit(1)
 		end
-		Util.snapshot(Config.pkgs, path .. SNAPSHOT_PKG)
+		Util.snapshot(Config.pkgs, Util.join_path(path, SNAPSHOT_PKG))
 	end
 end
 
