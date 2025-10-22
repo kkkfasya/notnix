@@ -306,14 +306,17 @@ return Config]]
 end
 
 ---Main notnix functionality
----this function will do os.exit, no return
+---this function will do os.exit when error occurs
 ---exit code > 0 is error
 ---@param cfg Config
----@param is_tracking boolean will track installed package, you might not want this if you just want to install pkgs since this will create folder in $HOME/.config/notnix (or $XDG_CONFIG_HOME if exists)
+---@param is_tracking? boolean will track installed package (default: true)
+---you might not want this if you just want to install pkgs since this will create folder in $HOME/.config/notnix (or $XDG_CONFIG_HOME if defined)
 local function notnix(cfg, is_tracking)
 	local s_pkg
 	local s_repo
 	local s_flat
+
+	is_tracking = is_tracking == nil and true or is_tracking
 
 	---@type Config
 	local Config
@@ -322,12 +325,11 @@ local function notnix(cfg, is_tracking)
 	if type(cfg) == "table" then
 		Config = cfg
 	else
-		print_error("[ERROR]: notnix() only accept table")
+		print_error("[ERROR]: notnix() only accepts table")
 	end
 
 	if cfg == nil then
-		print("[ERROR]: No config file is provided")
-		os.exit(1)
+		print_error("[ERROR]: No config file is provided")
 	end
 
 	if is_tracking then
@@ -568,7 +570,7 @@ Options:
 
 			local cfg = dofile(Util.join_path(path, CONFIG_FILENAME))
 			cfg.install = cfg.install .. " " .. x
-			notnix(cfg, true)
+			notnix(cfg)
 
 			os.exit(0)
 		end
@@ -587,7 +589,7 @@ Options:
 
 			local cfg = dofile(Util.join_path(path, CONFIG_FILENAME))
 			cfg.remove = cfg.remove .. " " .. x
-			notnix(cfg, true)
+			notnix(cfg)
 
 			os.exit(0)
 		end
@@ -598,6 +600,16 @@ Options:
 			for i = 1, #s_fp do
 				print("\t- " .. s_fp[i])
 			end
+
+			os.exit(0)
+		end
+
+		if arg[1] == "-y" then
+			local cfg = dofile(Util.join_path(path, CONFIG_FILENAME))
+			cfg.assume_yes_install = true
+			cfg.assume_yes_remove = true
+			notnix(cfg)
+
 			os.exit(0)
 		end
 
@@ -610,7 +622,7 @@ Options:
 
 	_make_config()
 	local cfg = dofile(Util.join_path(path, CONFIG_FILENAME))
-	notnix(cfg, true)
+	notnix(cfg)
 end
 
 main()
