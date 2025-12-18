@@ -490,10 +490,12 @@ Options:
   -xi, --xarg-install <arg>      Pass an extra argument to the package manager when installing pkgs
   -xr, --xarg-remove <arg>       Pass an extra argument to the package manager when remove pkgs
 
-  up, update, upgrade            Upgrade packages listed in the configuration
-  upf, update-fp                 Update Flatpak packages from the list
-  lfp, list-fp                   List all installed Flatpak applications
-  lr, list-repo                  List all added repositories (e.g., COPR repos)
+  up  | update, upgrade          Upgrade packages listed in the configuration
+  upf | update-fp                Update Flatpak packages from the list
+  uc  | update-config            Update config without running notnix() to remove/install anything
+  pc  | print-config             Dump the entire config to the stdout 
+  lfp | list-fp                  List all installed Flatpak applications
+  lr  | list-repo                List all added repositories (e.g., COPR repos)
 ]]
 
 	if arg[1] ~= nil then
@@ -600,6 +602,22 @@ Options:
 			for i = 1, #s_fp do
 				print("\t- " .. s_fp[i])
 			end
+
+			os.exit(0)
+		end
+
+		if arg[1] == "uc" or arg[1] == "update-config" then
+			local cfg = dofile(Util.join_path(path, CONFIG_FILENAME)) --[[@as Config]]
+			Util.snapshot(cfg.pkgs, Util.join_path(path, SNAPSHOT_PKG))
+			Util.snapshot(cfg.flatpaks, Util.join_path(path, SNAPSHOT_FLATPAK))
+			Util.snapshot(cfg.repos, Util.join_path(path, SNAPSHOT_REPO))
+
+			os.exit(0)
+		end
+
+		if arg[1] == "pc" or arg[1] == "print-config" then
+			local f = assert(io.open(Util.join_path(path, CONFIG_FILENAME), "r"))
+			print(f:read("a"))
 
 			os.exit(0)
 		end
