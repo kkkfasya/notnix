@@ -2,8 +2,9 @@
 -- notnix
 -- Copyright (c) 2025 Kamal Fasya
 -- This is free a software licensed under the terms of the MIT license. See LICENSE for details.
-
--- fuck libdnf5, wym "attributeerror: 'RepoSackWeakPtr' object has no attribute 'load_repos'"???? I follow the docs correctly motherfucker
+-- TODO: test this shit
+---@alias Error string | nil
+---@alias PkgEntry string | { [1]: string, freeze_update?: boolean }
 
 local CHUD = [[
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
@@ -86,23 +87,50 @@ function Util.join_path(a, ...)
 	return path
 end
 
----load table of string and turn them into a single string delimited by spaces yet will have trailing space
+---load table of string and turn them into a single string delimited by spaces and will have trailing space
 ---e.g "fastfetch tmux nvim "
----@param pkgs_table table
----@return string
+---@param pkgs_table PkgEntry[]
+---@return string, Error err_msg
 function Util.load(pkgs_table)
-	local s = ""
-
 	if not #pkgs_table then
-		return s
+		return "", "packages table is empty "
 	end
+
+	local pkgs = ""
 
 	for i = 1, #pkgs_table do
-		-- :gsub() here means remove any whitespace
-		s = s .. pkgs_table[i]:gsub("%s+", "") .. " " -- yes, there will be trailing spaces and you will love it
+		---@type PkgEntry
+		local entry = pkgs_table[i]
+		if type(entry) == "string" then
+			pkgs = pkgs .. entry:gsub("%s+", "") .. " "
+		elseif type(entry) == "table" and type(entry[1]) == "string" then
+			pkgs = pkgs .. entry[1]:gsub("%s+", "") .. " "
+		end
+	end
+	return pkgs, nil
+end
+
+---load table of string and turn them into a single string delimited by spaces yet will have trailing space
+---this one is specially used for update, since freeze_update field exist
+---@param pkgs_table PkgEntry[]
+---@return string, Error err_msg
+function Util.load_update(pkgs_table)
+	if not #pkgs_table then
+		return "", "packages table is empty "
 	end
 
-	return s
+	local pkgs = ""
+
+	for i = 1, #pkgs_table do
+		---@type PkgEntry
+		local entry = pkgs_table[i]
+		if type(entry) == "string" then
+			pkgs = pkgs .. entry:gsub("%s+", "") .. " "
+		elseif type(entry) == "table" and type(entry[1]) == "string" and not entry.freeze_update then
+			pkgs = pkgs .. entry[1]:gsub("%s+", "") .. " "
+		end
+	end
+	return pkgs, nil
 end
 
 ---will save the pkgs_table to a given luafile
@@ -190,8 +218,8 @@ function Util.detect_changes(pkg, snapshot)
 end
 
 --- @class Pkg
---- @field install fun(pkgs_table: string[], install_cmd: string, assume_yes: boolean): integer
---- @field remove fun(pkgs_table: string[], remove_cmd: string, assume_yes: boolean): integer
+--- @field install fun(pkgs_table: string[], install_cmd: string, assume_yes: boolean, custom_pkg_loader?: function): integer
+--- @field remove fun(pkgs_table: string[], remove_cmd: string, assume_yes: boolean, custom_pkg_loader?: function): integer
 local Pkg = {}
 
 -- idk if docs below is necessary but whatever
@@ -200,10 +228,22 @@ local Pkg = {}
 ---@param pkgs_table string[]
 ---@param install_cmd string
 ---@param assume_yes boolean
----@return integer code # return a status code, if code > 0 then it's error
-function Pkg.install(pkgs_table, install_cmd, assume_yes)
+---@param custom_pkg_loader? fun(PkgEntry): string | Error err_msg # to load custom table, must adhere to (val, err) return type, i know this is such a hack and probably shouldn't exist if i actually know how to fucking code
+---@return integer code return a status code, if code > 0 then it's error
+function Pkg.install(pkgs_table, install_cmd, assume_yes, custom_pkg_loader)
+	local pkgs, err
+	if custom_pkg_loader then
+		pkgs, err = custom_pkg_loader(pkgs_table)
+	end
+	pkgs, err = Util.load(pkgs_table)
+
 	local yes = assume_yes and "yes | " or ""
-	local _, _, c = os.execute(("%s %s %s"):format(yes, install_cmd, Util.load(pkgs_table))) --[[@as integer]]
+
+	if err ~= nil then
+		return 1
+	end
+
+	local _, _, c = os.execute(("%s %s %s"):format(yes, install_cmd, pkgs)) --[[@as integer]]
 	return c
 end
 
@@ -211,15 +251,25 @@ end
 ---@param pkgs_table string[]
 ---@param remove_cmd string
 ---@param assume_yes boolean
+---@param custom_pkg_loader? fun(PkgEntry): string | Error to load custom table
 ---@return integer code # return a status code, if code > 0 then it's error
-function Pkg.remove(pkgs_table, remove_cmd, assume_yes)
+function Pkg.remove(pkgs_table, remove_cmd, assume_yes, custom_pkg_loader)
+	local pkgs, err
+	if custom_pkg_loader then
+		pkgs, err = custom_pkg_loader(pkgs_table)
+	end
+	pkgs, err = Util.load(pkgs_table)
 	local yes = assume_yes and "yes | " or ""
-	local _, _, c = os.execute(("%s %s %s"):format(yes, remove_cmd, Util.load(pkgs_table))) --[[@as integer]]
+	if err ~= nil then
+		return 1
+	end
+
+	local _, _, c = os.execute(("%s %s %s"):format(yes, remove_cmd, pkgs)) --[[@as integer]]
 	return c
 end
 
----@return string path
 ---return a path to notnix config folder, does not have trailing slash
+---@return string path
 local function _get_config_dir_path()
 	local home = os.getenv("HOME")
 	local xdg_config_home = os.getenv("XDG_CONFIG_HOME")
@@ -310,7 +360,7 @@ end
 ---exit code > 0 is error
 ---@param cfg Config
 ---@param is_tracking? boolean will track installed package (default: true)
----you might not want this if you just want to install pkgs since this will create folder in $HOME/.config/notnix (or $XDG_CONFIG_HOME if defined)
+---you might not want tracking if you just want to install pkgs since this will create folder in $HOME/.config/notnix (or $XDG_CONFIG_HOME if defined)
 local function notnix(cfg, is_tracking)
 	local s_pkg
 	local s_repo
@@ -525,9 +575,11 @@ Options:
 			local s_pkgs = dofile(Util.join_path(path, SNAPSHOT_PKG))
 			print("[INFO]: Upgrading packages")
 			for i = 1, #s_pkgs do
-				print("\t- " .. s_pkgs[i])
+                if (not s_pkgs[i].freeze_update) then
+				    print("\t- " .. s_pkgs[i])
+                end
 			end
-			Pkg.install(Config.pkgs, Config.upgrade, Config.assume_yes_install)
+			Pkg.install(Config.pkgs, Config.upgrade, Config.assume_yes_install, Util.load_update)
 			os.exit(0)
 		end
 
