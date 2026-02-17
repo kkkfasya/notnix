@@ -3,7 +3,7 @@
 -- Copyright (c) 2025 Kamal Fasya
 -- This is free a software licensed under the terms of the MIT license. See LICENSE for details.
 
--- fuck libdnf5, wym "attributeerror: 'RepoSackWeakPtr' object has no attribute 'load_repos'"???? I follow the docs correctly motherfucker
+---@alias Err string
 
 local CHUD = [[
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
@@ -88,8 +88,8 @@ end
 
 ---load table of string and turn them into a single string delimited by spaces yet will have trailing space
 ---e.g "fastfetch tmux nvim "
----@param pkgs_table table
----@return string
+---@param pkgs_table string[]
+---@return string, err
 function Util.load(pkgs_table)
 	local s = ""
 
@@ -98,15 +98,20 @@ function Util.load(pkgs_table)
 	end
 
 	for i = 1, #pkgs_table do
+		if type(pkgs_table[i]) ~= "string" then
+			return nil, "[ERROR]: Cannot load non-string items"
+		end
+
 		-- :gsub() here means remove any whitespace
-		s = s .. pkgs_table[i]:gsub("%s+", "") .. " " -- yes, there will be trailing spaces and you will love it
+		s = s .. pkgs_table[i]:gsub("%s+", "") .. " "
 	end
 
-	return s
+	return s, nil
 end
 
 ---will save the pkgs_table to a given luafile
 ---so then it can easily be used to track the changing state of the table
+---if file do not exist, will be created by this function
 ---@param pkgs_table table
 ---@param luafile string
 function Util.snapshot(pkgs_table, luafile)
@@ -121,7 +126,7 @@ function Util.snapshot(pkgs_table, luafile)
 	local f = assert(io.open(luafile, "w"))
     -- stylua: ignore
     f:write(
-        "-- WARNING: do not modify this file\n"
+        "-- WARNING: file created by notnix, do not modify this file manually\n"
         .. t
     )
 	f:close()
@@ -135,10 +140,17 @@ function Util.detect_dups(pkgs)
 	table.sort(pkgs)
 
 	for i = 1, #pkgs do
+		local dups_exist = false
 		local a = pkgs[i]:gsub("%s+", "")
 		local b = pkgs[i + 1] and pkgs[i + 1]:gsub("%s+", "") or nil -- pkgs[i + 1] ? tru : fals ternary operator type shit
 
-		if a == b then
+		for j = 1, #t_dups do
+			if b == t_dups[j] then
+				dups_exist = true
+			end
+		end
+
+		if a == b and not dups_exist then
 			table.insert(t_dups, pkgs[i])
 		end
 	end
@@ -154,7 +166,7 @@ end
 --- Compares a list of packages against a snapshot to identify added/removed packages
 --- @param pkg string[] List of package names to compare against the snapshot
 --- @param snapshot? string[] | nil list of package names representing the current state; defaults to empty table if nil
----@return ChangesTable # table with `add` and `remove` field
+---@return ChangesTable # tablewith `add` and `remove` field
 function Util.detect_changes(pkg, snapshot)
 	if snapshot == nil then
 		snapshot = {}
@@ -194,15 +206,25 @@ end
 --- @field remove fun(pkgs_table: string[], remove_cmd: string, assume_yes: boolean): integer
 local Pkg = {}
 
--- idk if docs below is necessary but whatever
-
 ---Install packages based on given list of packages using distro pkg-manager
 ---@param pkgs_table string[]
 ---@param install_cmd string
 ---@param assume_yes boolean
 ---@return integer code # return a status code, if code > 0 then it's error
 function Pkg.install(pkgs_table, install_cmd, assume_yes)
+	if
+		pkgs_table == nil
+		or pkgs_table == {}
+		or install_cmd == nil
+		or install_cmd == ""
+		or type(pkgs_table) ~= "table"
+		or type(install_cmd) ~= "string"
+	then
+		return 69
+	end
+
 	local yes = assume_yes and "yes | " or ""
+    local l = Util.load(pkgs_table) 
 	local _, _, c = os.execute(("%s %s %s"):format(yes, install_cmd, Util.load(pkgs_table))) --[[@as integer]]
 	return c
 end
@@ -213,6 +235,17 @@ end
 ---@param assume_yes boolean
 ---@return integer code # return a status code, if code > 0 then it's error
 function Pkg.remove(pkgs_table, remove_cmd, assume_yes)
+	if
+		pkgs_table == nil
+		or pkgs_table == {}
+		or remove_cmd == nil
+		or remove_cmd == ""
+		or type(pkgs_table) ~= "table"
+		or type(remove_cmd) ~= "string"
+	then
+		return 69
+	end
+
 	local yes = assume_yes and "yes | " or ""
 	local _, _, c = os.execute(("%s %s %s"):format(yes, remove_cmd, Util.load(pkgs_table))) --[[@as integer]]
 	return c
@@ -276,20 +309,27 @@ return Config]]
 	end
 
 	if not is_file_exist(path_snap_pkg) then
-		local f = assert(io.open(path_snap_pkg, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		local f =
+			assert(io.open(path_snap_pkg, "w"), color.error .. "[ERROR]: cant create snapshot file")
 		print("[INFO]: creating folder " .. path)
 		f:write("-- WARNING: do not modify this file\nreturn {}")
 		f:close()
 	end
 
 	if not is_file_exist(path_snap_repo) then
-		local f = assert(io.open(path_snap_repo, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		local f = assert(
+			io.open(path_snap_repo, "w"),
+			color.error .. "[ERROR]: cant create snapshot file"
+		)
 		f:write("-- WARNING: do not modify this file\nreturn {}")
 		f:close()
 	end
 
 	if not is_file_exist(path_snap_flatpak) then
-		local f = assert(io.open(path_snap_flatpak, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		local f = assert(
+			io.open(path_snap_flatpak, "w"),
+			color.error .. "[ERROR]: cant create snapshot file"
+		)
 		f:write("-- WARNING: do not modify this file\nreturn {}")
 		f:close()
 	end
@@ -373,7 +413,6 @@ local function notnix(cfg, is_tracking)
 	local flat = Util.detect_changes(Config.flatpaks, s_flat)
 	local repos = Util.detect_changes(Config.repos, s_repo)
 
-    -- if no changes whatsoever print CHUD, because nothing happens
     -- stylua: ignore start
 	if (#pkgs.add == 0 and #pkgs.remove == 0
         and #flat.add == 0 and #flat.remove == 0
@@ -641,6 +680,248 @@ Options:
 	_make_config()
 	local cfg = dofile(Util.join_path(path, CONFIG_FILENAME))
 	notnix(cfg)
+end
+
+if os.getenv("NOTNIX_RUN_TEST") then
+	local luaunit = require("luaunit")
+	function test_join_path()
+		luaunit.assertEquals(Util.join_path("/home", "ball"), "/home/ball")
+		luaunit.assertEquals(Util.join_path("home", "/ball"), "/ball")
+		luaunit.assertEquals(Util.join_path("homeball", "/home", "ball"), "/home/ball")
+	end
+
+	function test_load_pkg()
+		local t = { "free", "palestine" }
+		luaunit.assertEquals(Util.load(t), "free palestine ")
+	end
+
+	function test_snapshot()
+		local snap_t = { "pkg" }
+		local testfile = "testfile.lua"
+		local expected_str = [[
+-- WARNING: file created by notnix, do not modify this file manually
+return {
+"pkg",
+}]]
+		Util.snapshot(snap_t, testfile)
+		local result_str = io.open("testfile.lua", "r"):read("a")
+		luaunit.assertEquals(result_str, expected_str)
+		luaunit.assertEquals(os.remove(testfile), true)
+	end
+
+	function test_detect_dups_single()
+		local dups_t = { "pkg-a", "pkg-b", "pkg-a" }
+		local expected_t = { "pkg-a" }
+		luaunit.assertEquals(Util.detect_dups(dups_t), expected_t)
+	end
+
+	function test_detect_dups_multiple()
+		local input = { "a", "b", "a", "c", "b", "d", "a" }
+		local expected = { "a", "b" }
+
+		local result = Util.detect_dups(input)
+
+		table.sort(result)
+		table.sort(expected)
+
+		luaunit.assertEquals(result, expected)
+	end
+
+	function test_detect_dups_empty()
+		local input = {}
+		local expected = {}
+
+		local result = Util.detect_dups(input)
+		luaunit.assertEquals(result, expected)
+	end
+
+	function test_detect_dups_none()
+		local input = { "pkg-a", "pkg-b", "pkg-c" }
+		local expected = {}
+
+		local result = Util.detect_dups(input)
+		luaunit.assertEquals(result, expected)
+	end
+
+	function test_detect_dups_many_repeats()
+		local input = { "x", "x", "x", "x" }
+		local expected = { "x" }
+
+		local result = Util.detect_dups(input)
+
+		table.sort(result)
+		table.sort(expected)
+
+		luaunit.assertEquals(result, expected)
+	end
+
+	function test_detect_changes_both_empty()
+		local pkg = {}
+		local snapshot = {}
+
+		local result = Util.detect_changes(pkg, snapshot)
+
+		luaunit.assertEquals(result.add, {})
+		luaunit.assertEquals(result.remove, {})
+	end
+
+	function test_detect_changes_snapshot_nil()
+		local pkg = { "a", "b" }
+
+		local result = Util.detect_changes(pkg, nil)
+
+		table.sort(result.add)
+		luaunit.assertEquals(result.add, { "a", "b" })
+		luaunit.assertEquals(result.remove, {})
+	end
+
+	function test_detect_changes_only_add()
+		local pkg = { "a", "b", "c" }
+		local snapshot = {}
+
+		local result = Util.detect_changes(pkg, snapshot)
+
+		table.sort(result.add)
+		luaunit.assertEquals(result.add, { "a", "b", "c" })
+		luaunit.assertEquals(result.remove, {})
+	end
+
+	function test_detect_changes_only_remove()
+		local pkg = {}
+		local snapshot = { "a", "b" }
+
+		local result = Util.detect_changes(pkg, snapshot)
+
+		table.sort(result.remove)
+		luaunit.assertEquals(result.add, {})
+		luaunit.assertEquals(result.remove, { "a", "b" })
+	end
+
+	function test_detect_changes_add_remove()
+		local pkg = { "a", "c", "d" }
+		local snapshot = { "a", "b", "c" }
+
+		local result = Util.detect_changes(pkg, snapshot)
+
+		table.sort(result.add)
+		table.sort(result.remove)
+
+		luaunit.assertEquals(result.add, { "d" })
+		luaunit.assertEquals(result.remove, { "b" })
+	end
+
+	function test_detect_changes_trims_whitespace()
+		local pkg = { " a ", "b  ", "  c" }
+		local snapshot = { "a", "b" }
+
+		local result = Util.detect_changes(pkg, snapshot)
+
+		table.sort(result.add)
+		table.sort(result.remove)
+
+		luaunit.assertEquals(result.add, { "c" })
+		luaunit.assertEquals(result.remove, {})
+	end
+
+	-- NOTE: set NOTNIX_INSTALL_CMD to your system pkg manager for this test to work
+	-- defaults to dnf
+	function test_pkg_install()
+		local pkgs = { "fortune", "cowsay" }
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+		local c = Pkg.install(pkgs, install_cmd, true)
+		luaunit.assertEquals(c, 0)
+	end
+
+	function test_pkg_install_nil_pkgs()
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+		local code = Pkg.install(nil, install_cmd, true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	function test_pkg_install_empty_pkgs()
+		local pkgs = {}
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+
+		local code = Pkg.install(pkgs, install_cmd, true)
+
+		luaunit.assertTrue(code > 1)
+	end
+
+	function test_pkg_install_non_string_element()
+		local pkgs = { "fortune", 123, true }
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+
+		local code = Pkg.install(pkgs, install_cmd, true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	function test_pkg_install_empty_install_cmd()
+		local pkgs = { "fortune" }
+
+		local code = Pkg.install(pkgs, "", true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	function test_pkg_remove()
+		local pkgs = { "fortune", "cowsay" }
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
+			or "sudo dnf install"
+		local c = Pkg.install(pkgs, remove_cmd, true)
+		luaunit.assertEquals(c, 0)
+	end
+
+	function test_pkg_remove()
+		local pkgs = { "fortune", "cowsay" }
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+		local c = Pkg.install(pkgs, install_cmd, true)
+		luaunit.assertEquals(c, 0)
+	end
+
+	function test_pkg_remove_nil_pkgs()
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+		local code = Pkg.install(nil, install_cmd, true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	function test_pkg_remove_empty_pkgs()
+		local pkgs = {}
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+
+		local code = Pkg.install(pkgs, install_cmd, true)
+
+		luaunit.assertTrue(code > 1)
+	end
+
+	function test_pkg_remove_non_string_element()
+		local pkgs = { "fortune", 123, true }
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+
+		local code = Pkg.install(pkgs, install_cmd, true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	function test_pkg_remove_empty_install_cmd()
+		local pkgs = { "fortune" }
+
+		local code = Pkg.install(pkgs, "", true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	os.exit(luaunit.LuaUnit.run())
 end
 
 main()
