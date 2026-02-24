@@ -3,7 +3,7 @@
 -- Copyright (c) 2025 Kamal Fasya
 -- This is free a software licensed under the terms of the MIT license. See LICENSE for details.
 
----@alias Err string
+---@alias Err string | nil
 
 local CHUD = [[
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
@@ -26,7 +26,6 @@ local CHUD = [[
 ⣶⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣭⣝⠻⠟⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿]]
 
 local color = {}
-
 color.info = "\27[32m"
 color.warn = "\27[33m"
 color.error = "\27[31m"
@@ -39,6 +38,56 @@ local SNAPSHOT_REPO = ".snapshot_repo.lua"
 local SNAPSHOT_FLATPAK = ".snapshot_flatpak.lua"
 local SNAPSHOT_GIT = ".snapshot_git.lua"
 local CONFIG_FILENAME = "config.lua"
+
+local CONFIG_STR = [[--- @class Config
+--- @field pkgs string[] List of packages to install; remove packages from this list to uninstall
+--- @field flatpaks string[] List of Flatpak packages; WARNING: please configure Flathub repository before using this
+--- @field repos string[] List of extra repositories (e.g., COPR, PPA)
+--- @field install string Package manager install command (e.g., "sudo dnf install "), must include sudo
+--- @field remove string Package manager remove command (e.g., "sudo dnf remove "), must include sudo
+--- @field upgrade string Package manager upgrade command (e.g., "sudo dnf upgrade"), must include sudo
+--- @field add_repo string Command to add repository (e.g., "sudo dnf copr enable")
+--- @field remove_repo string Command to remove repository (e.g., "sudo dnf copr remove")
+--- @field update_cache string Command to update package manager cache (e.g., "sudo dnf makecache")
+--- @field assume_yes_install boolean If true, skips confirmation for installs; default: false
+--- @field assume_yes_remove boolean If true, skips confirmation for removals; default: false
+local Config = {}
+
+Config.pkgs = {}
+
+Config.flatpaks = {}
+
+Config.repos = {}
+
+Config.install = "sudo dnf install"
+Config.remove = "sudo dnf remove"
+Config.upgrade = "sudo dnf upgrade"
+
+Config.add_repo = "sudo dnf copr enable"
+Config.remove_repo = "sudo dnf copr remove"
+Config.update_cache = "sudo dnf makecache"
+
+Config.assume_yes_install = false
+Config.assume_yes_remove = false
+
+return Config]]
+
+local HELP_MSG = [[notnix: nix-like package-manager but not really
+Usage: notnix [option]
+
+Options:
+  -h, --help                     Show this help message
+  -f, --file <filename>          Install packages from a config file (untracked, keeps $XDG_CONFIG_HOME clean)
+  -xi, --xarg-install <arg>      Pass an extra argument to the package manager when installing pkgs
+  -xr, --xarg-remove <arg>       Pass an extra argument to the package manager when remove pkgs
+
+  up  | update, upgrade          Upgrade packages listed in the configuration
+  upf | update-fp                Update Flatpak packages from the list
+  uc  | update-config            Update config without running notnix() to remove/install anything
+  pc  | print-config             Dump the entire config to the stdout 
+  lfp | list-fp                  List all installed Flatpak applications
+  lr  | list-repo                List all added repositories (e.g., COPR repos)
+]]
 
 ---@param file string path to file
 ---@return boolean
@@ -64,6 +113,7 @@ local Util = {}
 
 ---@param a string
 ---@param ... string
+---@return string path
 ---this is just python's os.path.join rewritten in lua lol
 ---Join two or more path, inserting sep '/' as needed.
 ---If any path after the first one is an absolute path, all previous path
@@ -72,6 +122,10 @@ function Util.join_path(a, ...)
 	local sep = "/"
 	local path = a
 	local p = { ... }
+
+	if not #p then
+		return ""
+	end
 
 	for i = 1, #p do
 		local b = p[i]
@@ -86,11 +140,11 @@ function Util.join_path(a, ...)
 	return path
 end
 
----load table of string and turn them into a single string delimited by spaces yet will have trailing space
----e.g "fastfetch tmux nvim "
+---load table of string and turn them into a single string delimited by spaces, will have a trailing space
+---e.g {"fastfetch", "tmux", "nvim"} -> "fastfetch tmux nvim "
 ---@param pkgs_table string[]
----@return string, err
-function Util.load(pkgs_table)
+---@return string | nil, Err
+function Util.load_table_to_str(pkgs_table)
 	local s = ""
 
 	if not #pkgs_table then
@@ -224,8 +278,9 @@ function Pkg.install(pkgs_table, install_cmd, assume_yes)
 	end
 
 	local yes = assume_yes and "yes | " or ""
-    local l = Util.load(pkgs_table) 
-	local _, _, c = os.execute(("%s %s %s"):format(yes, install_cmd, Util.load(pkgs_table))) --[[@as integer]]
+	local l = Util.load_table_to_str(pkgs_table)
+	local _, _, c =
+		os.execute(("%s %s %s"):format(yes, install_cmd, Util.load_table_to_str(pkgs_table))) --[[@as integer]]
 	return c
 end
 
@@ -247,7 +302,8 @@ function Pkg.remove(pkgs_table, remove_cmd, assume_yes)
 	end
 
 	local yes = assume_yes and "yes | " or ""
-	local _, _, c = os.execute(("%s %s %s"):format(yes, remove_cmd, Util.load(pkgs_table))) --[[@as integer]]
+	local _, _, c =
+		os.execute(("%s %s %s"):format(yes, remove_cmd, Util.load_table_to_str(pkgs_table))) --[[@as integer]]
 	return c
 end
 
@@ -268,39 +324,6 @@ local function _make_config()
 	local path_snap_pkg = Util.join_path(path, SNAPSHOT_PKG)
 	local path_snap_repo = Util.join_path(path, SNAPSHOT_REPO)
 	local path_snap_flatpak = Util.join_path(path, SNAPSHOT_FLATPAK)
-	local cfg_str = [[--- @class Config
---- @field pkgs string[] List of packages to install; remove packages from this list to uninstall
---- @field flatpaks string[] List of Flatpak packages; WARNING: please configure Flathub repository before using this
---- @field repos string[] List of extra repositories (e.g., COPR, PPA)
---- @field install string Package manager install command (e.g., "sudo dnf install "), must include sudo
---- @field remove string Package manager remove command (e.g., "sudo dnf remove "), must include sudo
---- @field upgrade string Package manager upgrade command (e.g., "sudo dnf upgrade"), must include sudo
---- @field add_repo string Command to add repository (e.g., "sudo dnf copr enable")
---- @field remove_repo string Command to remove repository (e.g., "sudo dnf copr remove")
---- @field update_cache string Command to update package manager cache (e.g., "sudo dnf makecache")
---- @field assume_yes_install boolean If true, skips confirmation for installs; default: false
---- @field assume_yes_remove boolean If true, skips confirmation for removals; default: false
-local Config = {}
-
-Config.pkgs = {}
-
-Config.flatpaks = {}
-
-Config.repos = {}
-
-Config.install = "sudo dnf install"
-Config.remove = "sudo dnf remove"
-Config.upgrade = "sudo dnf upgrade"
-
-Config.add_repo = "sudo dnf copr enable"
-Config.remove_repo = "sudo dnf copr remove"
-Config.update_cache = "sudo dnf makecache"
-
-Config.assume_yes_install = false
-Config.assume_yes_remove = false
-
-return Config]]
-
 	if not is_file_exist(path) then
 		print(color.warn .. "[WARNING]: notnix config folder not found")
 		color.reset()
@@ -340,7 +363,7 @@ return Config]]
 		print("[INFO]: creating config file, see " .. path_cfg .. " for config options")
 		local f = assert(io.open(path_cfg, "w"), color.error .. "[ERROR]: cant create config file")
 
-		f:write(cfg_str)
+		f:write(CONFIG_STR)
 		f:close()
 	end
 end
@@ -520,26 +543,9 @@ end
 local function main()
 	local path = _get_config_dir_path()
 
-	local help_msg = [[notnix: nix-like package-manager but not really
-Usage: notnix [option]
-
-Options:
-  -h, --help                     Show this help message
-  -f, --file <filename>          Install packages from a config file (untracked, keeps $XDG_CONFIG_HOME clean)
-  -xi, --xarg-install <arg>      Pass an extra argument to the package manager when installing pkgs
-  -xr, --xarg-remove <arg>       Pass an extra argument to the package manager when remove pkgs
-
-  up  | update, upgrade          Upgrade packages listed in the configuration
-  upf | update-fp                Update Flatpak packages from the list
-  uc  | update-config            Update config without running notnix() to remove/install anything
-  pc  | print-config             Dump the entire config to the stdout 
-  lfp | list-fp                  List all installed Flatpak applications
-  lr  | list-repo                List all added repositories (e.g., COPR repos)
-]]
-
 	if arg[1] ~= nil then
 		if arg[1] == "-h" or arg[1] == "--help" or arg[1] == "help" then
-			print(help_msg)
+			print(HELP_MSG)
 			os.exit(0)
 		end
 
@@ -684,15 +690,30 @@ end
 
 if os.getenv("NOTNIX_RUN_TEST") then
 	local luaunit = require("luaunit")
+
 	function test_join_path()
 		luaunit.assertEquals(Util.join_path("/home", "ball"), "/home/ball")
 		luaunit.assertEquals(Util.join_path("home", "/ball"), "/ball")
 		luaunit.assertEquals(Util.join_path("homeball", "/home", "ball"), "/home/ball")
 	end
 
+	function test_join_path_nil()
+		luaunit.assertEquals(Util.join_path(nil, "/home", "ball"), "/home/ball")
+	end
+
 	function test_load_pkg()
 		local t = { "free", "palestine" }
-		luaunit.assertEquals(Util.load(t), "free palestine ")
+		luaunit.assertEquals(Util.load_table_to_str(t), "free palestine ")
+	end
+
+	function test_load_pkg_nil()
+		local t = { "free", nil }
+		luaunit.assertEquals(Util.load_table_to_str(t), "free ")
+	end
+
+	function test_load_pkg_nil_first()
+		local t = { nil, "palestine" }
+		luaunit.assertEquals(Util.load_table_to_str(t), nil)
 	end
 
 	function test_snapshot()
@@ -823,8 +844,7 @@ return {
 		luaunit.assertEquals(result.remove, {})
 	end
 
-	-- NOTE: set NOTNIX_INSTALL_CMD to your system pkg manager for this test to work
-	-- defaults to dnf
+	-- NOTE: set NOTNIX_INSTALL_CMD to your system pkg manager for this test to work otherwise defaults to dnf
 	function test_pkg_install()
 		local pkgs = { "fortune", "cowsay" }
 		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
