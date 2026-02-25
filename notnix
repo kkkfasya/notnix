@@ -892,43 +892,43 @@ return {
 	function test_pkg_remove()
 		local pkgs = { "fortune", "cowsay" }
 		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
-			or "sudo dnf install"
-		local c = Pkg.install(pkgs, remove_cmd, true)
+			or "sudo dnf remove"
+		local c = Pkg.remove(pkgs, remove_cmd, true)
 		luaunit.assertEquals(c, 0)
 	end
 
 	function test_pkg_remove()
 		local pkgs = { "fortune", "cowsay" }
-		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
-			or "sudo dnf install"
-		local c = Pkg.install(pkgs, install_cmd, true)
-		luaunit.assertEquals(c, 0)
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
+			or "sudo dnf remove"
+		local code = Pkg.remove(pkgs, remove_cmd, true)
+		luaunit.assertEquals(code, 0)
 	end
 
 	function test_pkg_remove_nil_pkgs()
-		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
-			or "sudo dnf install"
-		local code = Pkg.install(nil, install_cmd, true)
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
+			or "sudo dnf remove"
+		local code = Pkg.remove(nil, remove_cmd, true)
 
 		luaunit.assertTrue(code > 0)
 	end
 
 	function test_pkg_remove_empty_pkgs()
 		local pkgs = {}
-		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
-			or "sudo dnf install"
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
+			or "sudo dnf remove"
 
-		local code = Pkg.install(pkgs, install_cmd, true)
+		local code = Pkg.remove(pkgs, remove_cmd, true)
 
 		luaunit.assertTrue(code > 1)
 	end
 
 	function test_pkg_remove_non_string_element()
 		local pkgs = { "fortune", 123, true }
-		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
-			or "sudo dnf install"
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
+			or "sudo dnf remove"
 
-		local code = Pkg.install(pkgs, install_cmd, true)
+		local code = Pkg.remove(pkgs, remove_cmd, true)
 
 		luaunit.assertTrue(code > 0)
 	end
@@ -936,7 +936,7 @@ return {
 	function test_pkg_remove_empty_install_cmd()
 		local pkgs = { "fortune" }
 
-		local code = Pkg.install(pkgs, "", true)
+		local code = Pkg.remove(pkgs, "", true)
 
 		luaunit.assertTrue(code > 0)
 	end
