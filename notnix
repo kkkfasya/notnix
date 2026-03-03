@@ -317,9 +317,8 @@ local function _get_config_dir_path()
 	return path
 end
 
----make config folder and file on $HOME/.config/ or $XDG_CONFIG_HOME if not available
-local function _make_config()
-	local path = _get_config_dir_path()
+---create notnix config folder and file in $HOME/.config/ or $XDG_CONFIG_HOME if not available
+local function _create_config(path)
 	local path_cfg = Util.join_path(path, CONFIG_FILENAME)
 	local path_snap_pkg = Util.join_path(path, SNAPSHOT_PKG)
 	local path_snap_repo = Util.join_path(path, SNAPSHOT_REPO)
@@ -448,6 +447,7 @@ local function notnix(cfg, is_tracking)
 	-- stylua: ignore end
 
 	-- == FLATPAK INSTALL & REMOVE ==
+	-- NOTE: use Pkg.install for flatpak perhasp?
 	if #flat.add > 0 then
 		local y = Config.assume_yes_install and " -y" or ""
 		print("[INFO]: Installing new flatpak:")
@@ -489,9 +489,6 @@ local function notnix(cfg, is_tracking)
 				print_error("[ERROR]: Cant add repo: " .. repos.add[i])
 			end
 
-			-- i can return the FILE ptr and close it after the loop finishes
-			-- it's faster, but unnecessary as i am not running on apollo 11 computer
-			-- BUT I'M ITCHING TO OPTIMIZE IT OH GOD I LOVE PREMATURE OPTIMIZATION
 			Util.snapshot(Config.repos, Util.join_path(path, SNAPSHOT_REPO))
 		end
 		local _, _, c = os.execute(Config.update_cache)
@@ -683,7 +680,7 @@ local function main()
 		end
 	end
 
-	_make_config()
+	_create_config(_get_config_dir_path())
 	local cfg = dofile(Util.join_path(path, CONFIG_FILENAME))
 	notnix(cfg)
 end
