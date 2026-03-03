@@ -3,7 +3,7 @@
 -- Copyright (c) 2025 Kamal Fasya
 -- This is free a software licensed under the terms of the MIT license. See LICENSE for details.
 
--- fuck libdnf5, wym "attributeerror: 'RepoSackWeakPtr' object has no attribute 'load_repos'"???? I follow the docs correctly motherfucker
+---@alias Err string | nil
 
 local CHUD = [[
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
@@ -26,7 +26,6 @@ local CHUD = [[
 ⣶⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣭⣝⠻⠟⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿]]
 
 local color = {}
-
 color.info = "\27[32m"
 color.warn = "\27[33m"
 color.error = "\27[31m"
@@ -39,6 +38,56 @@ local SNAPSHOT_REPO = ".snapshot_repo.lua"
 local SNAPSHOT_FLATPAK = ".snapshot_flatpak.lua"
 local SNAPSHOT_GIT = ".snapshot_git.lua"
 local CONFIG_FILENAME = "config.lua"
+
+local CONFIG_STR = [[--- @class Config
+--- @field pkgs string[] List of packages to install; remove packages from this list to uninstall
+--- @field flatpaks string[] List of Flatpak packages; WARNING: please configure Flathub repository before using this
+--- @field repos string[] List of extra repositories (e.g., COPR, PPA)
+--- @field install string Package manager install command (e.g., "sudo dnf install "), must include sudo
+--- @field remove string Package manager remove command (e.g., "sudo dnf remove "), must include sudo
+--- @field upgrade string Package manager upgrade command (e.g., "sudo dnf upgrade"), must include sudo
+--- @field add_repo string Command to add repository (e.g., "sudo dnf copr enable")
+--- @field remove_repo string Command to remove repository (e.g., "sudo dnf copr remove")
+--- @field update_cache string Command to update package manager cache (e.g., "sudo dnf makecache")
+--- @field assume_yes_install boolean If true, skips confirmation for installs; default: false
+--- @field assume_yes_remove boolean If true, skips confirmation for removals; default: false
+local Config = {}
+
+Config.pkgs = {}
+
+Config.flatpaks = {}
+
+Config.repos = {}
+
+Config.install = "sudo dnf install"
+Config.remove = "sudo dnf remove"
+Config.upgrade = "sudo dnf upgrade"
+
+Config.add_repo = "sudo dnf copr enable"
+Config.remove_repo = "sudo dnf copr remove"
+Config.update_cache = "sudo dnf makecache"
+
+Config.assume_yes_install = false
+Config.assume_yes_remove = false
+
+return Config]]
+
+local HELP_MSG = [[notnix: nix-like package-manager but not really
+Usage: notnix [option]
+
+Options:
+  -h, --help                     Show this help message
+  -f, --file <filename>          Install packages from a config file (untracked, keeps $XDG_CONFIG_HOME clean)
+  -xi, --xarg-install <arg>      Pass an extra argument to the package manager when installing pkgs
+  -xr, --xarg-remove <arg>       Pass an extra argument to the package manager when remove pkgs
+
+  up  | update, upgrade          Upgrade packages listed in the configuration
+  upf | update-fp                Update Flatpak packages from the list
+  uc  | update-config            Update config without running notnix() to remove/install anything
+  pc  | print-config             Dump the entire config to the stdout 
+  lfp | list-fp                  List all installed Flatpak applications
+  lr  | list-repo                List all added repositories (e.g., COPR repos)
+]]
 
 ---@param file string path to file
 ---@return boolean
@@ -64,6 +113,7 @@ local Util = {}
 
 ---@param a string
 ---@param ... string
+---@return string path
 ---this is just python's os.path.join rewritten in lua lol
 ---Join two or more path, inserting sep '/' as needed.
 ---If any path after the first one is an absolute path, all previous path
@@ -72,6 +122,10 @@ function Util.join_path(a, ...)
 	local sep = "/"
 	local path = a
 	local p = { ... }
+
+	if not #p then
+		return ""
+	end
 
 	for i = 1, #p do
 		local b = p[i]
@@ -86,11 +140,11 @@ function Util.join_path(a, ...)
 	return path
 end
 
----load table of string and turn them into a single string delimited by spaces yet will have trailing space
----e.g "fastfetch tmux nvim "
----@param pkgs_table table
----@return string
-function Util.load(pkgs_table)
+---load table of string and turn them into a single string delimited by spaces, will have a trailing space
+---e.g {"fastfetch", "tmux", "nvim"} -> "fastfetch tmux nvim "
+---@param pkgs_table string[]
+---@return string | nil, Err
+function Util.load_table_to_str(pkgs_table)
 	local s = ""
 
 	if not #pkgs_table then
@@ -98,15 +152,20 @@ function Util.load(pkgs_table)
 	end
 
 	for i = 1, #pkgs_table do
+		if type(pkgs_table[i]) ~= "string" then
+			return nil, "[ERROR]: Cannot load non-string items"
+		end
+
 		-- :gsub() here means remove any whitespace
-		s = s .. pkgs_table[i]:gsub("%s+", "") .. " " -- yes, there will be trailing spaces and you will love it
+		s = s .. pkgs_table[i]:gsub("%s+", "") .. " "
 	end
 
-	return s
+	return s, nil
 end
 
 ---will save the pkgs_table to a given luafile
 ---so then it can easily be used to track the changing state of the table
+---if file do not exist, will be created by this function
 ---@param pkgs_table table
 ---@param luafile string
 function Util.snapshot(pkgs_table, luafile)
@@ -121,7 +180,7 @@ function Util.snapshot(pkgs_table, luafile)
 	local f = assert(io.open(luafile, "w"))
     -- stylua: ignore
     f:write(
-        "-- WARNING: do not modify this file\n"
+        "-- WARNING: file created by notnix, do not modify this file manually\n"
         .. t
     )
 	f:close()
@@ -135,10 +194,17 @@ function Util.detect_dups(pkgs)
 	table.sort(pkgs)
 
 	for i = 1, #pkgs do
+		local dups_exist = false
 		local a = pkgs[i]:gsub("%s+", "")
 		local b = pkgs[i + 1] and pkgs[i + 1]:gsub("%s+", "") or nil -- pkgs[i + 1] ? tru : fals ternary operator type shit
 
-		if a == b then
+		for j = 1, #t_dups do
+			if b == t_dups[j] then
+				dups_exist = true
+			end
+		end
+
+		if a == b and not dups_exist then
 			table.insert(t_dups, pkgs[i])
 		end
 	end
@@ -154,7 +220,7 @@ end
 --- Compares a list of packages against a snapshot to identify added/removed packages
 --- @param pkg string[] List of package names to compare against the snapshot
 --- @param snapshot? string[] | nil list of package names representing the current state; defaults to empty table if nil
----@return ChangesTable # table with `add` and `remove` field
+---@return ChangesTable # tablewith `add` and `remove` field
 function Util.detect_changes(pkg, snapshot)
 	if snapshot == nil then
 		snapshot = {}
@@ -194,16 +260,27 @@ end
 --- @field remove fun(pkgs_table: string[], remove_cmd: string, assume_yes: boolean): integer
 local Pkg = {}
 
--- idk if docs below is necessary but whatever
-
 ---Install packages based on given list of packages using distro pkg-manager
 ---@param pkgs_table string[]
 ---@param install_cmd string
 ---@param assume_yes boolean
 ---@return integer code # return a status code, if code > 0 then it's error
 function Pkg.install(pkgs_table, install_cmd, assume_yes)
+	if
+		pkgs_table == nil
+		or pkgs_table == {}
+		or install_cmd == nil
+		or install_cmd == ""
+		or type(pkgs_table) ~= "table"
+		or type(install_cmd) ~= "string"
+	then
+		return 69
+	end
+
 	local yes = assume_yes and "yes | " or ""
-	local _, _, c = os.execute(("%s %s %s"):format(yes, install_cmd, Util.load(pkgs_table))) --[[@as integer]]
+	local l = Util.load_table_to_str(pkgs_table)
+	local _, _, c =
+		os.execute(("%s %s %s"):format(yes, install_cmd, Util.load_table_to_str(pkgs_table))) --[[@as integer]]
 	return c
 end
 
@@ -213,8 +290,20 @@ end
 ---@param assume_yes boolean
 ---@return integer code # return a status code, if code > 0 then it's error
 function Pkg.remove(pkgs_table, remove_cmd, assume_yes)
+	if
+		pkgs_table == nil
+		or pkgs_table == {}
+		or remove_cmd == nil
+		or remove_cmd == ""
+		or type(pkgs_table) ~= "table"
+		or type(remove_cmd) ~= "string"
+	then
+		return 69
+	end
+
 	local yes = assume_yes and "yes | " or ""
-	local _, _, c = os.execute(("%s %s %s"):format(yes, remove_cmd, Util.load(pkgs_table))) --[[@as integer]]
+	local _, _, c =
+		os.execute(("%s %s %s"):format(yes, remove_cmd, Util.load_table_to_str(pkgs_table))) --[[@as integer]]
 	return c
 end
 
@@ -228,46 +317,12 @@ local function _get_config_dir_path()
 	return path
 end
 
----make config folder and file on $HOME/.config/ or $XDG_CONFIG_HOME if not available
-local function _make_config()
-	local path = _get_config_dir_path()
+---create notnix config folder and file in $HOME/.config/ or $XDG_CONFIG_HOME if not available
+local function _create_config(path)
 	local path_cfg = Util.join_path(path, CONFIG_FILENAME)
 	local path_snap_pkg = Util.join_path(path, SNAPSHOT_PKG)
 	local path_snap_repo = Util.join_path(path, SNAPSHOT_REPO)
 	local path_snap_flatpak = Util.join_path(path, SNAPSHOT_FLATPAK)
-	local cfg_str = [[--- @class Config
---- @field pkgs string[] List of packages to install; remove packages from this list to uninstall
---- @field flatpaks string[] List of Flatpak packages; WARNING: please configure Flathub repository before using this
---- @field repos string[] List of extra repositories (e.g., COPR, PPA)
---- @field install string Package manager install command (e.g., "sudo dnf install "), must include sudo
---- @field remove string Package manager remove command (e.g., "sudo dnf remove "), must include sudo
---- @field upgrade string Package manager upgrade command (e.g., "sudo dnf upgrade"), must include sudo
---- @field add_repo string Command to add repository (e.g., "sudo dnf copr enable")
---- @field remove_repo string Command to remove repository (e.g., "sudo dnf copr remove")
---- @field update_cache string Command to update package manager cache (e.g., "sudo dnf makecache")
---- @field assume_yes_install boolean If true, skips confirmation for installs; default: false
---- @field assume_yes_remove boolean If true, skips confirmation for removals; default: false
-local Config = {}
-
-Config.pkgs = {}
-
-Config.flatpaks = {}
-
-Config.repos = {}
-
-Config.install = "sudo dnf install"
-Config.remove = "sudo dnf remove"
-Config.upgrade = "sudo dnf upgrade"
-
-Config.add_repo = "sudo dnf copr enable"
-Config.remove_repo = "sudo dnf copr remove"
-Config.update_cache = "sudo dnf makecache"
-
-Config.assume_yes_install = false
-Config.assume_yes_remove = false
-
-return Config]]
-
 	if not is_file_exist(path) then
 		print(color.warn .. "[WARNING]: notnix config folder not found")
 		color.reset()
@@ -276,20 +331,27 @@ return Config]]
 	end
 
 	if not is_file_exist(path_snap_pkg) then
-		local f = assert(io.open(path_snap_pkg, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		local f =
+			assert(io.open(path_snap_pkg, "w"), color.error .. "[ERROR]: cant create snapshot file")
 		print("[INFO]: creating folder " .. path)
 		f:write("-- WARNING: do not modify this file\nreturn {}")
 		f:close()
 	end
 
 	if not is_file_exist(path_snap_repo) then
-		local f = assert(io.open(path_snap_repo, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		local f = assert(
+			io.open(path_snap_repo, "w"),
+			color.error .. "[ERROR]: cant create snapshot file"
+		)
 		f:write("-- WARNING: do not modify this file\nreturn {}")
 		f:close()
 	end
 
 	if not is_file_exist(path_snap_flatpak) then
-		local f = assert(io.open(path_snap_flatpak, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		local f = assert(
+			io.open(path_snap_flatpak, "w"),
+			color.error .. "[ERROR]: cant create snapshot file"
+		)
 		f:write("-- WARNING: do not modify this file\nreturn {}")
 		f:close()
 	end
@@ -300,7 +362,7 @@ return Config]]
 		print("[INFO]: creating config file, see " .. path_cfg .. " for config options")
 		local f = assert(io.open(path_cfg, "w"), color.error .. "[ERROR]: cant create config file")
 
-		f:write(cfg_str)
+		f:write(CONFIG_STR)
 		f:close()
 	end
 end
@@ -373,7 +435,6 @@ local function notnix(cfg, is_tracking)
 	local flat = Util.detect_changes(Config.flatpaks, s_flat)
 	local repos = Util.detect_changes(Config.repos, s_repo)
 
-    -- if no changes whatsoever print CHUD, because nothing happens
     -- stylua: ignore start
 	if (#pkgs.add == 0 and #pkgs.remove == 0
         and #flat.add == 0 and #flat.remove == 0
@@ -386,6 +447,7 @@ local function notnix(cfg, is_tracking)
 	-- stylua: ignore end
 
 	-- == FLATPAK INSTALL & REMOVE ==
+	-- NOTE: use Pkg.install for flatpak perhasp?
 	if #flat.add > 0 then
 		local y = Config.assume_yes_install and " -y" or ""
 		print("[INFO]: Installing new flatpak:")
@@ -427,9 +489,6 @@ local function notnix(cfg, is_tracking)
 				print_error("[ERROR]: Cant add repo: " .. repos.add[i])
 			end
 
-			-- i can return the FILE ptr and close it after the loop finishes
-			-- it's faster, but unnecessary as i am not running on apollo 11 computer
-			-- BUT I'M ITCHING TO OPTIMIZE IT OH GOD I LOVE PREMATURE OPTIMIZATION
 			Util.snapshot(Config.repos, Util.join_path(path, SNAPSHOT_REPO))
 		end
 		local _, _, c = os.execute(Config.update_cache)
@@ -481,26 +540,9 @@ end
 local function main()
 	local path = _get_config_dir_path()
 
-	local help_msg = [[notnix: nix-like package-manager but not really
-Usage: notnix [option]
-
-Options:
-  -h, --help                     Show this help message
-  -f, --file <filename>          Install packages from a config file (untracked, keeps $XDG_CONFIG_HOME clean)
-  -xi, --xarg-install <arg>      Pass an extra argument to the package manager when installing pkgs
-  -xr, --xarg-remove <arg>       Pass an extra argument to the package manager when remove pkgs
-
-  up  | update, upgrade          Upgrade packages listed in the configuration
-  upf | update-fp                Update Flatpak packages from the list
-  uc  | update-config            Update config without running notnix() to remove/install anything
-  pc  | print-config             Dump the entire config to the stdout 
-  lfp | list-fp                  List all installed Flatpak applications
-  lr  | list-repo                List all added repositories (e.g., COPR repos)
-]]
-
 	if arg[1] ~= nil then
 		if arg[1] == "-h" or arg[1] == "--help" or arg[1] == "help" then
-			print(help_msg)
+			print(HELP_MSG)
 			os.exit(0)
 		end
 
@@ -638,9 +680,265 @@ Options:
 		end
 	end
 
-	_make_config()
+	_create_config(_get_config_dir_path())
 	local cfg = dofile(Util.join_path(path, CONFIG_FILENAME))
 	notnix(cfg)
+end
+
+if os.getenv("NOTNIX_RUN_TEST") then
+	local luaunit = require("luaunit")
+
+	function test_join_path()
+		luaunit.assertEquals(Util.join_path("/home", "ball"), "/home/ball")
+		luaunit.assertEquals(Util.join_path("home", "/ball"), "/ball")
+		luaunit.assertEquals(Util.join_path("homeball", "/home", "ball"), "/home/ball")
+	end
+
+	function test_join_path_nil()
+		luaunit.assertEquals(Util.join_path(nil, "/home", "ball"), "/home/ball")
+	end
+
+	function test_load_pkg()
+		local t = { "free", "palestine" }
+		luaunit.assertEquals(Util.load_table_to_str(t), "free palestine ")
+	end
+
+	function test_load_pkg_nil()
+		local t = { "free", nil }
+		luaunit.assertEquals(Util.load_table_to_str(t), "free ")
+	end
+
+	function test_load_pkg_nil_first()
+		local t = { nil, "palestine" }
+		luaunit.assertEquals(Util.load_table_to_str(t), nil)
+	end
+
+	function test_snapshot()
+		local snap_t = { "pkg" }
+		local testfile = "testfile.lua"
+		local expected_str = [[
+-- WARNING: file created by notnix, do not modify this file manually
+return {
+"pkg",
+}]]
+		Util.snapshot(snap_t, testfile)
+		local result_str = io.open("testfile.lua", "r"):read("a")
+		luaunit.assertEquals(result_str, expected_str)
+		luaunit.assertEquals(os.remove(testfile), true)
+	end
+
+	function test_detect_dups_single()
+		local dups_t = { "pkg-a", "pkg-b", "pkg-a" }
+		local expected_t = { "pkg-a" }
+		luaunit.assertEquals(Util.detect_dups(dups_t), expected_t)
+	end
+
+	function test_detect_dups_multiple()
+		local input = { "a", "b", "a", "c", "b", "d", "a" }
+		local expected = { "a", "b" }
+
+		local result = Util.detect_dups(input)
+
+		table.sort(result)
+		table.sort(expected)
+
+		luaunit.assertEquals(result, expected)
+	end
+
+	function test_detect_dups_empty()
+		local input = {}
+		local expected = {}
+
+		local result = Util.detect_dups(input)
+		luaunit.assertEquals(result, expected)
+	end
+
+	function test_detect_dups_none()
+		local input = { "pkg-a", "pkg-b", "pkg-c" }
+		local expected = {}
+
+		local result = Util.detect_dups(input)
+		luaunit.assertEquals(result, expected)
+	end
+
+	function test_detect_dups_many_repeats()
+		local input = { "x", "x", "x", "x" }
+		local expected = { "x" }
+
+		local result = Util.detect_dups(input)
+
+		table.sort(result)
+		table.sort(expected)
+
+		luaunit.assertEquals(result, expected)
+	end
+
+	function test_detect_changes_both_empty()
+		local pkg = {}
+		local snapshot = {}
+
+		local result = Util.detect_changes(pkg, snapshot)
+
+		luaunit.assertEquals(result.add, {})
+		luaunit.assertEquals(result.remove, {})
+	end
+
+	function test_detect_changes_snapshot_nil()
+		local pkg = { "a", "b" }
+
+		local result = Util.detect_changes(pkg, nil)
+
+		table.sort(result.add)
+		luaunit.assertEquals(result.add, { "a", "b" })
+		luaunit.assertEquals(result.remove, {})
+	end
+
+	function test_detect_changes_only_add()
+		local pkg = { "a", "b", "c" }
+		local snapshot = {}
+
+		local result = Util.detect_changes(pkg, snapshot)
+
+		table.sort(result.add)
+		luaunit.assertEquals(result.add, { "a", "b", "c" })
+		luaunit.assertEquals(result.remove, {})
+	end
+
+	function test_detect_changes_only_remove()
+		local pkg = {}
+		local snapshot = { "a", "b" }
+
+		local result = Util.detect_changes(pkg, snapshot)
+
+		table.sort(result.remove)
+		luaunit.assertEquals(result.add, {})
+		luaunit.assertEquals(result.remove, { "a", "b" })
+	end
+
+	function test_detect_changes_add_remove()
+		local pkg = { "a", "c", "d" }
+		local snapshot = { "a", "b", "c" }
+
+		local result = Util.detect_changes(pkg, snapshot)
+
+		table.sort(result.add)
+		table.sort(result.remove)
+
+		luaunit.assertEquals(result.add, { "d" })
+		luaunit.assertEquals(result.remove, { "b" })
+	end
+
+	function test_detect_changes_trims_whitespace()
+		local pkg = { " a ", "b  ", "  c" }
+		local snapshot = { "a", "b" }
+
+		local result = Util.detect_changes(pkg, snapshot)
+
+		table.sort(result.add)
+		table.sort(result.remove)
+
+		luaunit.assertEquals(result.add, { "c" })
+		luaunit.assertEquals(result.remove, {})
+	end
+
+	-- NOTE: set NOTNIX_INSTALL_CMD to your system pkg manager for this test to work otherwise defaults to dnf
+	function test_pkg_install()
+		local pkgs = { "fortune", "cowsay" }
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+		local c = Pkg.install(pkgs, install_cmd, true)
+		luaunit.assertEquals(c, 0)
+	end
+
+	function test_pkg_install_nil_pkgs()
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+		local code = Pkg.install(nil, install_cmd, true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	function test_pkg_install_empty_pkgs()
+		local pkgs = {}
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+
+		local code = Pkg.install(pkgs, install_cmd, true)
+
+		luaunit.assertTrue(code > 1)
+	end
+
+	function test_pkg_install_non_string_element()
+		local pkgs = { "fortune", 123, true }
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
+			or "sudo dnf install"
+
+		local code = Pkg.install(pkgs, install_cmd, true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	function test_pkg_install_empty_install_cmd()
+		local pkgs = { "fortune" }
+
+		local code = Pkg.install(pkgs, "", true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	function test_pkg_remove()
+		local pkgs = { "fortune", "cowsay" }
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
+			or "sudo dnf remove"
+		local c = Pkg.remove(pkgs, remove_cmd, true)
+		luaunit.assertEquals(c, 0)
+	end
+
+	function test_pkg_remove()
+		local pkgs = { "fortune", "cowsay" }
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
+			or "sudo dnf remove"
+		local code = Pkg.remove(pkgs, remove_cmd, true)
+		luaunit.assertEquals(code, 0)
+	end
+
+	function test_pkg_remove_nil_pkgs()
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
+			or "sudo dnf remove"
+		local code = Pkg.remove(nil, remove_cmd, true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	function test_pkg_remove_empty_pkgs()
+		local pkgs = {}
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
+			or "sudo dnf remove"
+
+		local code = Pkg.remove(pkgs, remove_cmd, true)
+
+		luaunit.assertTrue(code > 1)
+	end
+
+	function test_pkg_remove_non_string_element()
+		local pkgs = { "fortune", 123, true }
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
+			or "sudo dnf remove"
+
+		local code = Pkg.remove(pkgs, remove_cmd, true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	function test_pkg_remove_empty_install_cmd()
+		local pkgs = { "fortune" }
+
+		local code = Pkg.remove(pkgs, "", true)
+
+		luaunit.assertTrue(code > 0)
+	end
+
+	os.exit(luaunit.LuaUnit.run())
 end
 
 main()
