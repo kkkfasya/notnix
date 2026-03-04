@@ -40,7 +40,7 @@ local SNAPSHOT_FLATPAK = ".snapshot_flatpak.lua"
 local SNAPSHOT_GIT = ".snapshot_git.lua"
 local CONFIG_FILENAME = "config.lua"
 
-local CONFIG_STR = [[--- @class Config
+local CONFIG_STR = [[
 local Config = {}
 
 Config.pkgs = {}
@@ -346,7 +346,7 @@ function Pkg.install(pkgs_table, install_cmd, assume_yes, custom_pkg_loader)
 	if custom_pkg_loader then
 		pkgs, err = custom_pkg_loader(pkgs_table)
 	end
-	pkgs, err = Util.load(pkgs_table)
+	pkgs, err = Util.load_table_to_str(pkgs_table)
 
 	local yes = assume_yes and "yes | " or ""
 
@@ -405,6 +405,7 @@ local function _create_config(path)
 	local path_snap_pkg = Util.join_path(path, SNAPSHOT_PKG)
 	local path_snap_repo = Util.join_path(path, SNAPSHOT_REPO)
 	local path_snap_flatpak = Util.join_path(path, SNAPSHOT_FLATPAK)
+
 	if not is_file_exist(path) then
 		print(color.warn .. "[WARNING]: notnix config folder not found")
 		color.reset()
@@ -456,15 +457,15 @@ end
 ---@param is_tracking? boolean will track installed package (default: true)
 ---you might not want tracking if you just want to install pkgs since this will create folder in $HOME/.config/notnix (or $XDG_CONFIG_HOME if defined)
 local function notnix(cfg, is_tracking)
-	local ok, err = validate_config(cfg)
+	local _, err = validate_config(cfg)
 	if err ~= nil then
 		print_error("[ERROR:]  " .. err)
 	end
 
+	is_tracking = is_tracking == nil and true or is_tracking
 	local s_pkg
 	local s_repo
 	local s_flat
-	is_tracking = is_tracking == nil and false or is_tracking
 
 	---@type Config
 	local Config = cfg
@@ -523,7 +524,7 @@ local function notnix(cfg, is_tracking)
 	-- stylua: ignore end
 
 	-- == FLATPAK INSTALL & REMOVE ==
-	-- NOTE: use Pkg.install for flatpak perhasp?
+	-- XXX: use Pkg.install for flatpak perhaps?
 	if #flat.add > 0 then
 		local y = Config.assume_yes_install and " -y" or ""
 		print("[INFO]: Installing new flatpak:")
@@ -555,6 +556,7 @@ local function notnix(cfg, is_tracking)
 	end
 
 	-- == REPOS ADD & REMOVE ==
+	-- XXX: test this functionality
 	if #repos.add > 0 then
 		local yes = Config.assume_yes_remove and "yes|" or ""
 		print("[INFO]: Adding new repos:")
