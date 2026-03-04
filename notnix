@@ -2,9 +2,6 @@
 -- notnix
 -- Copyright (c) 2025 Kamal Fasya
 -- This is free a software licensed under the terms of the MIT license. See LICENSE for details.
-
--- fuck libdnf5, wym "attributeerror: 'RepoSackWeakPtr' object has no attribute 'load_repos'"???? I follow the docs correctly motherfucker
-
 local CHUD = [[
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠛⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠻⠿⣿⣿⣿
@@ -316,7 +313,7 @@ local function notnix(cfg, is_tracking)
 	local s_repo
 	local s_flat
 
-	is_tracking = is_tracking == nil and true or is_tracking
+	is_tracking = is_tracking == nil and false or is_tracking
 
 	---@type Config
 	local Config
@@ -549,7 +546,7 @@ Options:
 			os.exit(0)
 		end
 
-		if arg[1] == "lr" or arg[1] == "list-pkg" then
+		if arg[1] == "lr" or arg[1] == "list-repo" then
 			local s_repos = dofile(Util.join_path(path, SNAPSHOT_REPO))
 			print("[INFO]: List of repos:")
 			for i = 1, #s_repos do
