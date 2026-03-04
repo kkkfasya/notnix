@@ -232,18 +232,7 @@ local function _make_config()
 	local path_snap_pkg = Util.join_path(path, SNAPSHOT_PKG)
 	local path_snap_repo = Util.join_path(path, SNAPSHOT_REPO)
 	local path_snap_flatpak = Util.join_path(path, SNAPSHOT_FLATPAK)
-	local cfg_str = [[--- @class Config
---- @field pkgs string[] List of packages to install; remove packages from this list to uninstall
---- @field flatpaks string[] List of Flatpak packages; WARNING: please configure Flathub repository before using this
---- @field repos string[] List of extra repositories (e.g., COPR, PPA)
---- @field install string Package manager install command (e.g., "sudo dnf install "), must include sudo
---- @field remove string Package manager remove command (e.g., "sudo dnf remove "), must include sudo
---- @field upgrade string Package manager upgrade command (e.g., "sudo dnf upgrade"), must include sudo
---- @field add_repo string Command to add repository (e.g., "sudo dnf copr enable")
---- @field remove_repo string Command to remove repository (e.g., "sudo dnf copr remove")
---- @field update_cache string Command to update package manager cache (e.g., "sudo dnf makecache")
---- @field assume_yes_install boolean If true, skips confirmation for installs; default: false
---- @field assume_yes_remove boolean If true, skips confirmation for removals; default: false
+	local cfg_str = [[
 local Config = {}
 
 Config.pkgs = {}
@@ -313,7 +302,7 @@ local function notnix(cfg, is_tracking)
 	local s_repo
 	local s_flat
 
-	is_tracking = is_tracking == nil and false or is_tracking
+	is_tracking = is_tracking == nil and true or is_tracking
 
 	---@type Config
 	local Config
@@ -489,7 +478,7 @@ Options:
 
   up  | update, upgrade          Upgrade packages listed in the configuration
   upf | update-fp                Update Flatpak packages from the list
-  uc  | update-config            Update config without running notnix() to remove/install anything
+  uc  | update-config            Update config without removing/installing anything
   pc  | print-config             Dump the entire config to the stdout 
   lfp | list-fp                  List all installed Flatpak applications
   lr  | list-repo                List all added repositories (e.g., COPR repos)
