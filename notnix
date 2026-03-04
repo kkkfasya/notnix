@@ -73,7 +73,7 @@ Options:
 
   up  | update, upgrade          Upgrade packages listed in the configuration
   upf | update-fp                Update Flatpak packages from the list
-  uc  | update-config            Update config without running notnix() to remove/install anything
+  uc  | update-config            Update config without removing/installing anything
   pc  | print-config             Dump the entire config to the stdout 
   lfp | list-fp                  List all installed Flatpak applications
   lr  | list-repo                List all added repositories (e.g., COPR repos)
@@ -456,22 +456,19 @@ end
 ---@param is_tracking? boolean will track installed package (default: true)
 ---you might not want tracking if you just want to install pkgs since this will create folder in $HOME/.config/notnix (or $XDG_CONFIG_HOME if defined)
 local function notnix(cfg, is_tracking)
-	local s_pkg
-	local s_repo
-	local s_flat
-
-	---@type Config
-	local Config = cfg
-
-	is_tracking = is_tracking == nil and false or is_tracking
-
-	local path = _get_config_dir_path()
-
 	local ok, err = validate_config(cfg)
 	if err ~= nil then
 		print_error("[ERROR:]  " .. err)
 	end
 
+	local s_pkg
+	local s_repo
+	local s_flat
+	is_tracking = is_tracking == nil and false or is_tracking
+
+	---@type Config
+	local Config = cfg
+	local path = _get_config_dir_path()
 
 	if is_tracking then
 		s_pkg = dofile(Util.join_path(path, SNAPSHOT_PKG))
@@ -559,10 +556,11 @@ local function notnix(cfg, is_tracking)
 
 	-- == REPOS ADD & REMOVE ==
 	if #repos.add > 0 then
+		local yes = Config.assume_yes_remove and "yes|" or ""
 		print("[INFO]: Adding new repos:")
 		for i = 1, #repos.add do
 			print("\t- " .. repos.add[i])
-			local _, _, c = os.execute(("%s %s -y"):format(Config.add_repo, repos.add[i]))
+			local _, _, c = os.execute(("%s %s %s"):format(yes, Config.add_repo, repos.add[i]))
 
 			if c > 0 then
 				print_error("[ERROR]: Cant add repo: " .. repos.add[i])
@@ -577,10 +575,12 @@ local function notnix(cfg, is_tracking)
 	end
 
 	if #repos.remove > 0 then
+		local yes = Config.assume_yes_remove and "yes|" or ""
 		print("[INFO]: Removing repos:")
 		for i = 1, #repos.remove do
 			print("\t- " .. repos.remove[i])
-			local _, _, c = os.execute(("%s %s -y"):format(Config.remove_repo, repos.remove[i]))
+			local _, _, c =
+				os.execute(("%s %s %s"):format(yes, Config.remove_repo, repos.remove[i]))
 
 			if c > 0 then
 				print_error("[ERROR]: Cant remove repo: " .. repos.remove[i])
@@ -1052,6 +1052,100 @@ return {
 		local result, err = Util.load_update(input)
 
 		luaunit.assertEquals(result, "b ")
+		luaunit.assertNil(err)
+	end
+
+	local function valid_config()
+		return {
+			pkgs = {},
+			flatpaks = {},
+			repos = {},
+
+			install = "apt install",
+			remove = "apt remove",
+			upgrade = "apt upgrade",
+			add_repo = "add-repo",
+			remove_repo = "remove-repo",
+			update_cache = "apt update",
+
+			assume_yes_install = true,
+			assume_yes_remove = false,
+		}
+	end
+
+	function test_validate_config_not_table()
+		local ok, err = validate_config("not-table")
+
+		luaunit.assertFalse(ok)
+		luaunit.assertStrContains(err, "config must be a table")
+	end
+
+	function test_validate_config_missing_array_field()
+		local cfg = valid_config()
+		cfg.pkgs = nil
+
+		local ok, err = validate_config(cfg)
+
+		luaunit.assertFalse(ok)
+		luaunit.assertEquals(err, "config.pkgs is missing")
+	end
+
+	function test_validate_config_array_wrong_type()
+		local cfg = valid_config()
+		cfg.flatpaks = "not-table"
+
+		local ok, err = validate_config(cfg)
+
+		luaunit.assertFalse(ok)
+		luaunit.assertEquals(err, "config.flatpaks must be a table, got string")
+	end
+
+	function test_validate_config_missing_string_field()
+		local cfg = valid_config()
+		cfg.install = nil
+
+		local ok, err = validate_config(cfg)
+
+		luaunit.assertFalse(ok)
+		luaunit.assertEquals(err, "config.install is missing")
+	end
+
+	function test_validate_config_string_wrong_type()
+		local cfg = valid_config()
+		cfg.remove = 123
+
+		local ok, err = validate_config(cfg)
+
+		luaunit.assertFalse(ok)
+		luaunit.assertEquals(err, "config.remove must be a string, got number")
+	end
+
+	function test_validate_config_missing_boolean()
+		local cfg = valid_config()
+		cfg.assume_yes_install = nil
+
+		local ok, err = validate_config(cfg)
+
+		luaunit.assertFalse(ok)
+		luaunit.assertEquals(err, "config.assume_yes_install is missing")
+	end
+
+	function test_validate_config_boolean_wrong_type()
+		local cfg = valid_config()
+		cfg.assume_yes_remove = "yes"
+
+		local ok, err = validate_config(cfg)
+
+		luaunit.assertFalse(ok)
+		luaunit.assertEquals(err, "config.assume_yes_remove must be a boolean, got string")
+	end
+
+	function test_validate_config_valid()
+		local cfg = valid_config()
+
+		local ok, err = validate_config(cfg)
+
+		luaunit.assertTrue(ok)
 		luaunit.assertNil(err)
 	end
 
