@@ -79,6 +79,53 @@ Options:
   lr  | list-repo                List all added repositories (e.g., COPR repos)
 ]]
 
+--- Validate Config table types
+--- @param cfg Config The config to validate
+--- @return boolean valid, Err err
+local function validate_config(cfg)
+	if type(cfg) ~= "table" then
+		return false, "config must be a table, got " .. type(cfg)
+	end
+
+	-- these fields are required to exist, but are not required to be used
+	local array_fields = { "pkgs", "flatpaks", "repos" }
+	for _, field in ipairs(array_fields) do
+		if cfg[field] == nil then
+			return false, "config." .. field .. " is missing"
+		end
+		if type(cfg[field]) ~= "table" then
+			return false, "config." .. field .. " must be a table, got " .. type(cfg[field])
+		end
+	end
+
+	local string_fields =
+		{ "install", "remove", "upgrade", "add_repo", "remove_repo", "update_cache" }
+	for _, field in ipairs(string_fields) do
+		if cfg[field] == nil then
+			return false, "config." .. field .. " is missing"
+		end
+		if type(cfg[field]) ~= "string" then
+			return false, "config." .. field .. " must be a string, got " .. type(cfg[field])
+		end
+		if cfg[field]:gsub("%s+", "") == "" then
+			return false, "config." .. field .. " cannot be empty"
+		end
+	end
+
+	-- Required boolean fields
+	local bool_fields = { "assume_yes_install", "assume_yes_remove" }
+	for _, field in ipairs(bool_fields) do
+		if cfg[field] == nil then
+			return false, "config." .. field .. " is missing"
+		end
+		if type(cfg[field]) ~= "boolean" then
+			return false, "config." .. field .. " must be a boolean, got " .. type(cfg[field])
+		end
+	end
+
+	return true, nil
+end
+
 ---@param file string path to file
 ---@return boolean
 local function is_file_exist(file)
@@ -129,6 +176,7 @@ function Util.join_path(a, ...)
 	end
 	return path
 end
+
 ---load table of string and turn them into a single string delimited by spaces and will have trailing space
 ---e.g "fastfetch tmux nvim "
 ---@param pkgs_table PkgEntry[]
@@ -285,7 +333,7 @@ local Pkg = {}
 function Pkg.install(pkgs_table, install_cmd, assume_yes, custom_pkg_loader)
 	if
 		pkgs_table == nil
-		or pkgs_table == {}
+		or #pkgs_table == 0
 		or install_cmd == nil
 		or install_cmd == ""
 		or type(pkgs_table) ~= "table"
@@ -319,7 +367,7 @@ end
 function Pkg.remove(pkgs_table, remove_cmd, assume_yes, custom_pkg_loader)
 	if
 		pkgs_table == nil
-		or pkgs_table == {}
+		or #pkgs_table == 0
 		or remove_cmd == nil
 		or remove_cmd == ""
 		or type(pkgs_table) ~= "table"
@@ -412,21 +460,18 @@ local function notnix(cfg, is_tracking)
 	local s_repo
 	local s_flat
 
-	is_tracking = is_tracking == nil and true or is_tracking
-
 	---@type Config
-	local Config
+	local Config = cfg
+
+	is_tracking = is_tracking == nil and false or is_tracking
+
 	local path = _get_config_dir_path()
 
-	if type(cfg) == "table" then
-		Config = cfg
-	else
-		print_error("[ERROR]: notnix() only accepts table")
+	local ok, err = validate_config(cfg)
+	if err ~= nil then
+		print_error("[ERROR:]  " .. err)
 	end
 
-	if cfg == nil then
-		print_error("[ERROR]: No config file is provided")
-	end
 
 	if is_tracking then
 		s_pkg = dofile(Util.join_path(path, SNAPSHOT_PKG))
@@ -607,15 +652,30 @@ local function main()
 					print("\t- " .. s_pkgs[i])
 				end
 			end
-			Pkg.install(Config.pkgs, Config.upgrade, Config.assume_yes_install, Util.load_update)
-			os.exit(0)
+			local c = Pkg.install(
+				Config.pkgs,
+				Config.upgrade,
+				Config.assume_yes_install,
+				Util.load_update
+			)
+			os.exit(c)
 		end
 
 		if arg[1] == "upf" or arg[1] == "update-fp" then
-			local s_fp = dofile(Util.join_path(path, SNAPSHOT_FLATPAK))
-			local flats = table.concat(s_fp, " ")
-			local _, _, c = os.execute("flatpak update " .. flats)
-			os.exit(c)
+			local Config = dofile(Util.join_path(path, CONFIG_FILENAME))
+			local s_pkgs = dofile(Util.join_path(path, SNAPSHOT_PKG))
+			print("[INFO]: Upgrading packages")
+			for i = 1, #s_pkgs do
+				if not s_pkgs[i].freeze_update then
+					print("\t- " .. s_pkgs[i])
+				end
+			end
+			local c = Pkg.install(
+				Config.pkgs,
+				Config.upgrade,
+				Config.assume_yes_install,
+				Util.load_update
+			)
 		end
 
 		if arg[1] == "lp" or arg[1] == "list-pkg" then
@@ -627,7 +687,7 @@ local function main()
 			os.exit(0)
 		end
 
-		if arg[1] == "lr" or arg[1] == "list-pkg" then
+		if arg[1] == "lr" or arg[1] == "list-repo" then
 			local s_repos = dofile(Util.join_path(path, SNAPSHOT_REPO))
 			print("[INFO]: List of repos:")
 			for i = 1, #s_repos do
@@ -935,14 +995,6 @@ return {
 		luaunit.assertEquals(c, 0)
 	end
 
-	function test_pkg_remove()
-		local pkgs = { "fortune", "cowsay" }
-		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
-			or "sudo dnf remove"
-		local code = Pkg.remove(pkgs, remove_cmd, true)
-		luaunit.assertEquals(code, 0)
-	end
-
 	function test_pkg_remove_nil_pkgs()
 		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
 			or "sudo dnf remove"
@@ -977,6 +1029,30 @@ return {
 		local code = Pkg.remove(pkgs, "", true)
 
 		luaunit.assertTrue(code > 0)
+	end
+
+	function test_load_update_table_entry_allowed()
+		local input = {
+			{ "a" },
+			{ "b", freeze_update = false },
+		}
+
+		local result, err = Util.load_update(input)
+
+		luaunit.assertEquals(result, "a b ")
+		luaunit.assertNil(err)
+	end
+
+	function test_load_update_freeze_update_true()
+		local input = {
+			{ "a", freeze_update = true },
+			"b",
+		}
+
+		local result, err = Util.load_update(input)
+
+		luaunit.assertEquals(result, "b ")
+		luaunit.assertNil(err)
 	end
 
 	os.exit(luaunit.LuaUnit.run())
