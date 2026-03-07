@@ -4,7 +4,18 @@
 -- This is free a software licensed under the terms of the MIT license. See LICENSE for details.
 
 ---@alias Err string | nil
----@alias PkgEntry string | { [1]: string, freeze_update?: boolean }
+
+---@alias PkgTable {
+---  [1]: string,
+---  freeze_update: boolean?,
+---  pre_install: string?,
+---  post_install: string?,
+---  pre_remove: string?,
+---  post_remove: string?,
+---  everyrun: string?,
+---}
+
+---@alias PkgEntry string | PkgTable
 
 local CHUD = [[
 ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠿⠿⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
@@ -71,7 +82,7 @@ Options:
   -xi, --xarg-install <arg>      Pass an extra argument to the package manager when installing pkgs
   -xr, --xarg-remove <arg>       Pass an extra argument to the package manager when remove pkgs
 
-  up  | update, upgrade          Upgrade packages listed in the configuration
+  up  | upgrade, update          Upgrade packages listed in the configuration
   upf | update-fp                Update Flatpak packages from the list
   uc  | update-config            Update config without removing/installing anything
   pc  | print-config             Dump the entire config to the stdout 
@@ -98,8 +109,7 @@ local function validate_config(cfg)
 		end
 	end
 
-	local string_fields =
-		{ "install", "remove", "upgrade", "add_repo", "remove_repo", "update_cache" }
+	local string_fields = { "install", "remove", "upgrade", "add_repo", "remove_repo", "update_cache" }
 	for _, field in ipairs(string_fields) do
 		if cfg[field] == nil then
 			return false, "config." .. field .. " is missing"
@@ -216,11 +226,7 @@ function Util.load_update(pkgs_table)
 		local entry = pkgs_table[i]
 		if type(entry) == "string" then
 			pkgs = pkgs .. entry:gsub("%s+", "") .. " "
-		elseif
-			type(entry) == "table"
-			and type(entry[1]) == "string"
-			and not entry.freeze_update
-		then
+		elseif type(entry) == "table" and type(entry[1]) == "string" and not entry.freeze_update then
 			pkgs = pkgs .. entry[1]:gsub("%s+", "") .. " "
 		end
 	end
@@ -230,14 +236,25 @@ end
 ---will save the pkgs_table to a given luafile
 ---so then it can easily be used to track the changing state of the table
 ---if file do not exist, will be created by this function
----@param pkgs_table table
+---@param pkgs_table PkgEntry[]
 ---@param luafile string
 function Util.snapshot(pkgs_table, luafile)
 	local t = "return {\n"
 
-	for i = 1, #pkgs_table do
-		local pkg = '"' .. pkgs_table[i] .. '"' .. ",\n" -- thank God lua allow trailing comma
-		t = t .. pkg
+	for _, entry in ipairs(pkgs_table) do
+		if type(entry) == "string" then
+			local pkg = string.format('\t"%s",\n', entry)
+			t = t .. pkg
+		elseif type(entry) == "table" and type(entry[1]) == "string" then
+			local line = string.format('\t{ "%s"', entry[1])
+
+			if entry.freeze_update ~= nil then
+				line = line .. ", freeze_update = " .. tostring(entry.freeze_update)
+			end
+
+			line = line .. " },\n"
+			t = t .. line
+		end
 	end
 
 	t = t .. "}"
@@ -251,8 +268,9 @@ function Util.snapshot(pkgs_table, luafile)
 end
 
 ---return table of found dups
----@param pkgs table
+---@param pkgs PkgEntry[]
 ---@return string[]
+---TODO: detect_dups also should take table into account
 function Util.detect_dups(pkgs)
 	local t_dups = {}
 	table.sort(pkgs)
@@ -325,12 +343,19 @@ end
 local Pkg = {}
 
 ---Install packages based on given list of packages using distro pkg-manager
----@param pkgs_table string[]
+---Also execute shell hooks that are provided in PkgEntry
+---@param pkgs_table PkgEntry[]
 ---@param install_cmd string
 ---@param assume_yes boolean
 ---@param custom_pkg_loader? fun(PkgEntry): string | Err err_msg # to load custom table, must adhere to (val, err) return type, i know this is such a hack and probably shouldn't exist if i actually know how to fucking code
 ---@return integer code return a status code, if code > 0 then it's error
 function Pkg.install(pkgs_table, install_cmd, assume_yes, custom_pkg_loader)
+	-- NOTE: maybe loader function should always be provided?
+	--[[ 
+		pkg loader will only be used for freeze_update
+		Util.load will take into account of PkgEntry type
+		Pkg.install and Pkg.remove will do the heavy lifting, where it both install the packages and execute hooks
+	--]]
 	if
 		pkgs_table == nil
 		or #pkgs_table == 0
@@ -345,8 +370,9 @@ function Pkg.install(pkgs_table, install_cmd, assume_yes, custom_pkg_loader)
 	local pkgs, err
 	if custom_pkg_loader then
 		pkgs, err = custom_pkg_loader(pkgs_table)
+	else
+		pkgs, err = Util.load_table_to_str(pkgs_table)
 	end
-	pkgs, err = Util.load_table_to_str(pkgs_table)
 
 	local yes = assume_yes and "yes | " or ""
 
@@ -365,6 +391,8 @@ end
 ---@param custom_pkg_loader? fun(PkgEntry): string | Err to load custom table
 ---@return integer code # return a status code, if code > 0 then it's error
 function Pkg.remove(pkgs_table, remove_cmd, assume_yes, custom_pkg_loader)
+	local yes = assume_yes and "yes | " or ""
+
 	if
 		pkgs_table == nil
 		or #pkgs_table == 0
@@ -378,9 +406,10 @@ function Pkg.remove(pkgs_table, remove_cmd, assume_yes, custom_pkg_loader)
 	local pkgs, err
 	if custom_pkg_loader then
 		pkgs, err = custom_pkg_loader(pkgs_table)
+	else
+		pkgs, err = Util.load_table_to_str(pkgs_table)
 	end
-	pkgs, err = Util.load_table_to_str(pkgs_table)
-	local yes = assume_yes and "yes | " or ""
+
 	if err ~= nil then
 		return 1
 	end
@@ -414,28 +443,21 @@ local function _create_config(path)
 	end
 
 	if not is_file_exist(path_snap_pkg) then
-		local f =
-			assert(io.open(path_snap_pkg, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		local f = assert(io.open(path_snap_pkg, "w"), color.error .. "[ERROR]: cant create snapshot file")
 		print("[INFO]: creating folder " .. path)
-		f:write("-- WARNING: do not modify this file\nreturn {}")
+		f:write("-- WARNING: file created by notnix, do not modify this file manually\n")
 		f:close()
 	end
 
 	if not is_file_exist(path_snap_repo) then
-		local f = assert(
-			io.open(path_snap_repo, "w"),
-			color.error .. "[ERROR]: cant create snapshot file"
-		)
-		f:write("-- WARNING: do not modify this file\nreturn {}")
+		local f = assert(io.open(path_snap_repo, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		f:write("-- WARNING: file created by notnix, do not modify this file manually\n")
 		f:close()
 	end
 
 	if not is_file_exist(path_snap_flatpak) then
-		local f = assert(
-			io.open(path_snap_flatpak, "w"),
-			color.error .. "[ERROR]: cant create snapshot file"
-		)
-		f:write("-- WARNING: do not modify this file\nreturn {}")
+		local f = assert(io.open(path_snap_flatpak, "w"), color.error .. "[ERROR]: cant create snapshot file")
+		f:write("-- WARNING: file created by notnix, do not modify this file manually\n")
 		f:close()
 	end
 
@@ -524,39 +546,33 @@ local function notnix(cfg, is_tracking)
 	-- stylua: ignore end
 
 	-- == FLATPAK INSTALL & REMOVE ==
-	-- XXX: use Pkg.install for flatpak perhaps?
 	if #flat.add > 0 then
-		local y = Config.assume_yes_install and " -y" or ""
-		print("[INFO]: Installing new flatpak:")
+		print("[INFO]: Installing flatpak:")
 		for i = 1, #flat.add do
 			print("\t- " .. flat.add[i])
-			local _, _, c = os.execute("flatpak install flathub " .. flat.add[i] .. y)
-
-			if c > 0 then
-				print(color.error .. "[ERROR]: Cant install flatpak app: " .. flat.add[i])
-				os.exit(1)
-			end
-
-			Util.snapshot(Config.flatpaks, Util.join_path(path, SNAPSHOT_FLATPAK))
 		end
+
+		if Pkg.install(flat.add, "flatpak install", Config.assume_yes_install) > 0 then
+			os.exit(1)
+		end
+
+		Util.snapshot(Config.flatpaks, Util.join_path(path, SNAPSHOT_FLATPAK))
 	end
 
 	if #flat.remove > 0 then
-		local y = Config.assume_yes_remove and " -y" or ""
 		print("[INFO]: Removing flatpak:")
 		for i = 1, #flat.remove do
 			print("\t- " .. flat.remove[i])
-
-			local _, _, c = os.execute("flatpak uninstall " .. flat.remove[i] .. y)
-			if c > 0 then
-				print_error("[ERROR]: Cant remove flatpak: " .. flat.remove[i])
-			end
-			Util.snapshot(Config.flatpaks, Util.join_path(path, SNAPSHOT_FLATPAK))
 		end
+
+		if Pkg.remove(flat.remove, "flatpak uninstall", Config.assume_yes_remove) > 0 then
+			os.exit(1)
+		end
+
+		Util.snapshot(Config.flatpaks, Util.join_path(path, SNAPSHOT_FLATPAK))
 	end
 
 	-- == REPOS ADD & REMOVE ==
-	-- XXX: test this functionality
 	if #repos.add > 0 then
 		local yes = Config.assume_yes_remove and "yes|" or ""
 		print("[INFO]: Adding new repos:")
@@ -581,8 +597,7 @@ local function notnix(cfg, is_tracking)
 		print("[INFO]: Removing repos:")
 		for i = 1, #repos.remove do
 			print("\t- " .. repos.remove[i])
-			local _, _, c =
-				os.execute(("%s %s %s"):format(yes, Config.remove_repo, repos.remove[i]))
+			local _, _, c = os.execute(("%s %s %s"):format(yes, Config.remove_repo, repos.remove[i]))
 
 			if c > 0 then
 				print_error("[ERROR]: Cant remove repo: " .. repos.remove[i])
@@ -649,52 +664,72 @@ local function main()
 			local Config = dofile(Util.join_path(path, CONFIG_FILENAME))
 			local s_pkgs = dofile(Util.join_path(path, SNAPSHOT_PKG))
 			print("[INFO]: Upgrading packages")
-			for i = 1, #s_pkgs do
-				if not s_pkgs[i].freeze_update then
-					print("\t- " .. s_pkgs[i])
+
+			for _, pkg in ipairs(s_pkgs) do
+				if type(pkg) == "string" then
+					print("\t- " .. pkg)
+				elseif type(pkg) == "table" then
+					if not pkg.freeze_update then
+						print("\t- " .. pkg[1])
+					end
 				end
 			end
-			local c = Pkg.install(
-				Config.pkgs,
-				Config.upgrade,
-				Config.assume_yes_install,
-				Util.load_update
-			)
+
+			local c = Pkg.install(Config.pkgs, Config.upgrade, Config.assume_yes_install, Util.load_update)
 			os.exit(c)
 		end
 
 		if arg[1] == "upf" or arg[1] == "update-fp" then
-			local Config = dofile(Util.join_path(path, CONFIG_FILENAME))
-			local s_pkgs = dofile(Util.join_path(path, SNAPSHOT_PKG))
+			local Config = dofile(Util.join_path(path, CONFIG_FILENAME)) --[[@as Config]]
+			local s_flats = dofile(Util.join_path(path, SNAPSHOT_FLATPAK))
 			print("[INFO]: Upgrading packages")
-			for i = 1, #s_pkgs do
-				if not s_pkgs[i].freeze_update then
-					print("\t- " .. s_pkgs[i])
+
+			for _, pkg in ipairs(s_flats) do
+				if type(pkg) == "string" then
+					print("\t- " .. pkg)
+				elseif type(pkg) == "table" then
+					if not pkg.freeze_update then
+						print("\t- " .. pkg[1])
+					end
 				end
 			end
-			local c = Pkg.install(
-				Config.pkgs,
-				Config.upgrade,
-				Config.assume_yes_install,
-				Util.load_update
-			)
+
+			local c = Pkg.install(Config.flatpaks, "flatpak update", Config.assume_yes_install, Util.load_update)
 		end
 
 		if arg[1] == "lp" or arg[1] == "list-pkg" then
-			local s_pkgs = dofile(Util.join_path(path, SNAPSHOT_PKG))
+			local f = assert(io.open(Util.join_path(path, SNAPSHOT_PKG), "r"))
 			print("[INFO]: List of Installed pkgs:")
-			for i = 1, #s_pkgs do
-				print("\t- " .. s_pkgs[i])
+			local _ = f:read("*l") -- skip first line
+			for line in f:lines() do
+				print(line)
 			end
+
+			f:close()
+			os.exit(0)
+		end
+
+		if arg[1] == "lfp" or arg[1] == "list-lfp" then
+			local f = assert(io.open(Util.join_path(path, SNAPSHOT_FLATPAK), "r"))
+			print("[INFO]: List of installed flatpaks:")
+			local _ = f:read("*l") -- skip first line
+			for line in f:lines() do
+				print(line)
+			end
+
+			f:close()
 			os.exit(0)
 		end
 
 		if arg[1] == "lr" or arg[1] == "list-repo" then
-			local s_repos = dofile(Util.join_path(path, SNAPSHOT_REPO))
-			print("[INFO]: List of repos:")
-			for i = 1, #s_repos do
-				print("\t- " .. s_repos[i])
+			local f = assert(io.open(Util.join_path(path, SNAPSHOT_REPO), "r"))
+			print("[INFO]: List of repo:")
+			local _ = f:read("*l") -- skip first line
+			for line in f:lines() do
+				print(line)
 			end
+
+			f:close()
 			os.exit(0)
 		end
 
@@ -732,16 +767,6 @@ local function main()
 			local cfg = dofile(Util.join_path(path, CONFIG_FILENAME))
 			cfg.remove = cfg.remove .. " " .. x
 			notnix(cfg)
-
-			os.exit(0)
-		end
-
-		if arg[1] == "lfp" or arg[1] == "list-lfp" then
-			local s_fp = dofile(Util.join_path(path, SNAPSHOT_FLATPAK))
-			print("[INFO]: Installed flatpak apps:")
-			for i = 1, #s_fp do
-				print("\t- " .. s_fp[i])
-			end
 
 			os.exit(0)
 		end
@@ -822,7 +847,7 @@ if os.getenv("NOTNIX_RUN_TEST") then
 		local expected_str = [[
 -- WARNING: file created by notnix, do not modify this file manually
 return {
-"pkg",
+	"pkg",
 }]]
 		Util.snapshot(snap_t, testfile)
 		local result_str = io.open("testfile.lua", "r"):read("a")
@@ -947,15 +972,13 @@ return {
 	-- NOTE: set NOTNIX_INSTALL_CMD to your system pkg manager for this test to work otherwise defaults to dnf
 	function test_pkg_install()
 		local pkgs = { "fortune", "cowsay" }
-		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
-			or "sudo dnf install"
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD") or "sudo dnf install"
 		local c = Pkg.install(pkgs, install_cmd, true)
 		luaunit.assertEquals(c, 0)
 	end
 
 	function test_pkg_install_nil_pkgs()
-		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
-			or "sudo dnf install"
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD") or "sudo dnf install"
 		local code = Pkg.install(nil, install_cmd, true)
 
 		luaunit.assertTrue(code > 0)
@@ -963,8 +986,7 @@ return {
 
 	function test_pkg_install_empty_pkgs()
 		local pkgs = {}
-		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
-			or "sudo dnf install"
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD") or "sudo dnf install"
 
 		local code = Pkg.install(pkgs, install_cmd, true)
 
@@ -973,8 +995,7 @@ return {
 
 	function test_pkg_install_non_string_element()
 		local pkgs = { "fortune", 123, true }
-		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD")
-			or "sudo dnf install"
+		local install_cmd = os.getenv("NOTNIX_INSTALL_CMD") and os.getenv("NOTNIX_INSTALL_CMD") or "sudo dnf install"
 
 		local code = Pkg.install(pkgs, install_cmd, true)
 
@@ -991,15 +1012,13 @@ return {
 
 	function test_pkg_remove()
 		local pkgs = { "fortune", "cowsay" }
-		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
-			or "sudo dnf remove"
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD") or "sudo dnf remove"
 		local c = Pkg.remove(pkgs, remove_cmd, true)
 		luaunit.assertEquals(c, 0)
 	end
 
 	function test_pkg_remove_nil_pkgs()
-		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
-			or "sudo dnf remove"
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD") or "sudo dnf remove"
 		local code = Pkg.remove(nil, remove_cmd, true)
 
 		luaunit.assertTrue(code > 0)
@@ -1007,8 +1026,7 @@ return {
 
 	function test_pkg_remove_empty_pkgs()
 		local pkgs = {}
-		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
-			or "sudo dnf remove"
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD") or "sudo dnf remove"
 
 		local code = Pkg.remove(pkgs, remove_cmd, true)
 
@@ -1017,8 +1035,7 @@ return {
 
 	function test_pkg_remove_non_string_element()
 		local pkgs = { "fortune", 123, true }
-		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD")
-			or "sudo dnf remove"
+		local remove_cmd = os.getenv("NOTNIX_REMOVE_CMD") and os.getenv("NOTNIX_REMOVE_CMD") or "sudo dnf remove"
 
 		local code = Pkg.remove(pkgs, remove_cmd, true)
 
@@ -1149,6 +1166,20 @@ return {
 
 		luaunit.assertTrue(ok)
 		luaunit.assertNil(err)
+	end
+
+	function test_sort_table()
+		local input = {
+			{ "a", freeze_update = true },
+			{ "c", freeze_update = false },
+			"b",
+		}
+		local expected = {
+			{ "a", freeze_update = true },
+			"b",
+			{ "c", freeze_update = false },
+		}
+		luaunit.assertEquals(table.sort(input), expected)
 	end
 
 	os.exit(luaunit.LuaUnit.run())
