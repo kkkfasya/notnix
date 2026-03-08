@@ -187,6 +187,42 @@ function Util.join_path(a, ...)
 	return path
 end
 
+---only check if names of package is the same, the rest will be ignored
+---@return boolean
+function Util.compare_pkg_tables(t1, t2)
+	if t1 == t2 then
+		return true
+	end
+
+	if type(t1) ~= "table" or type(t2) ~= "table" then
+		return false
+	end
+
+	return t1[1] == t2[1]
+end
+
+---only checks if the package's name of PkgEntry is the same
+---that is the only value being checked is t[1]
+---@return boolean
+function Util.custom_comparator(a, b)
+	local val_a
+	local val_b
+
+	if type(a) == "table" then
+		val_a = a[1]
+	else
+		val_a = a
+	end
+
+	if type(b) == "table" then
+		val_b = b[1]
+	else
+		val_b = b
+	end
+
+	return val_a < val_b
+end
+
 ---load table of string and turn them into a single string delimited by spaces and will have trailing space
 ---e.g "fastfetch tmux nvim "
 ---@param pkgs_table PkgEntry[]
@@ -273,21 +309,18 @@ end
 ---TODO: detect_dups also should take table into account
 function Util.detect_dups(pkgs)
 	local t_dups = {}
-	table.sort(pkgs)
+	table.sort(pkgs, Util.custom_comparator)
 
 	for i = 1, #pkgs do
-		local dups_exist = false
-		local a = pkgs[i]:gsub("%s+", "")
-		local b = pkgs[i + 1] and pkgs[i + 1]:gsub("%s+", "") or nil -- pkgs[i + 1] ? tru : fals ternary operator type shit
+		local cur_pkg = pkgs[i]
+		local front_pkg = pkgs[i + 1]
 
-		for j = 1, #t_dups do
-			if b == t_dups[j] then
-				dups_exist = true
+		if type(cur_pkg) == "table" then
+			if Util.custom_comparator(cur_pkg, front_pkg) then
+				table.insert(t_dups, cur_pkg)
 			end
-		end
-
-		if a == b and not dups_exist then
-			table.insert(t_dups, pkgs[i])
+		elseif cur_pkg:gsub("%s+", "") == front_pkg and front_pkg:gsub("%s+", "") or nil then
+			table.insert(t_dups, cur_pkg)
 		end
 	end
 
@@ -1179,9 +1212,60 @@ return {
 			"b",
 			{ "c", freeze_update = false },
 		}
-		luaunit.assertEquals(table.sort(input), expected)
+
+		table.sort(input, Util.custom_comparator)
+		luaunit.assertEquals(input, expected)
 	end
 
+	function test_compare_pkg_tables_same_reference()
+		local t = { "vim", freeze_update = true }
+
+		local result = Util.compare_pkg_tables(t, t)
+
+		luaunit.assertTrue(result)
+	end
+
+	function test_compare_pkg_tables_same_name()
+		local t1 = { "vim" }
+		local t2 = { "vim", freeze_update = true }
+
+		local result = Util.compare_pkg_tables(t1, t2)
+
+		luaunit.assertTrue(result)
+	end
+
+	function test_compare_pkg_tables_different_name()
+		local t1 = { "vim" }
+		local t2 = { "git" }
+
+		local result = Util.compare_pkg_tables(t1, t2)
+
+		luaunit.assertFalse(result)
+	end
+
+	function test_compare_pkg_tables_non_table_arg()
+		local t1 = { "vim" }
+		local t2 = "vim"
+
+		local result = Util.compare_pkg_tables(t1, t2)
+
+		luaunit.assertFalse(result)
+	end
+
+	function test_compare_pkg_tables_both_non_tables()
+		local result = Util.compare_pkg_tables("vim", "vim")
+
+		luaunit.assertFalse(result)
+	end
+
+	function test_compare_pkg_tables_nil_name()
+		local t1 = {}
+		local t2 = {}
+
+		local result = Util.compare_pkg_tables(t1, t2)
+
+		luaunit.assertTrue(result)
+	end
 	os.exit(luaunit.LuaUnit.run())
 end
 
