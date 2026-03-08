@@ -187,8 +187,44 @@ function Util.join_path(a, ...)
 	return path
 end
 
----only check if names of package is the same, the rest will be ignored
+local function dump(t, indent)
+	indent = indent or 0
+	local function serialize(val)
+		if type(val) == "string" then
+			return string.format("%q", val)
+		elseif type(val) == "table" then
+			return dump(val, indent + 1)
+		else
+			return tostring(val)
+		end
+	end
+
+	if type(t) ~= "table" then
+		print(serialize(t))
+		return
+	end
+
+	local str = "{\n"
+	for k, v in pairs(t) do
+		str = str .. string.rep("  ", indent + 1)
+		if type(k) == "string" then
+			str = str .. k .. " = "
+		else
+			str = str .. "[" .. tostring(k) .. "] = "
+		end
+		str = str .. serialize(v) .. ",\n"
+	end
+	str = str .. string.rep("  ", indent) .. "}"
+
+	if indent == 0 then
+		print(str)
+	else
+		return str
+	end
+end
+
 ---@return boolean
+---only check if names of package is the same, the rest will be ignored
 function Util.compare_pkg_tables(t1, t2)
 	if t1 == t2 then
 		return true
@@ -309,17 +345,35 @@ end
 ---TODO: detect_dups also should take table into account
 function Util.detect_dups(pkgs)
 	local t_dups = {}
-	table.sort(pkgs, Util.custom_comparator)
+	table.sort(pkgs, Util.custom_comparator) --- XXX: i feel the error is here
+	dump(pkgs)
 
 	for i = 1, #pkgs do
+		local dups_exist = false
 		local cur_pkg = pkgs[i]
-		local front_pkg = pkgs[i + 1]
+		local front_pkg = pkgs[i + 1] and pkgs[i + 1] or nil
 
-		if type(cur_pkg) == "table" then
-			if Util.custom_comparator(cur_pkg, front_pkg) then
-				table.insert(t_dups, cur_pkg)
+		if not front_pkg and type(cur_pkg) == "table" and type(front_pkg) == "table" then
+			cur_pkg[1] = cur_pkg[1]:gsub("%s+", "")
+			front_pkg[1] = front_pkg[1]:gsub("%s+", "")
+			if cur_pkg[1] == front_pkg[1] then
+				for j = 1, #t_dups do
+					if cur_pkg[1] == t_dups[j] then
+						dups_exist = true
+					end
+				end
 			end
-		elseif cur_pkg:gsub("%s+", "") == front_pkg and front_pkg:gsub("%s+", "") or nil then
+		elseif not front_pkg and type(cur_pkg) == "string" and type(front_pkg) == "string" then
+			if cur_pkg == front_pkg then
+				for j = 1, #t_dups do
+					if cur_pkg == t_dups[j] then
+						dups_exist = true
+					end
+				end
+			end
+		end
+
+		if dups_exist then
 			table.insert(t_dups, cur_pkg)
 		end
 	end
